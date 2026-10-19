@@ -1,0 +1,183 @@
+<?xml version="1.0"?>
+<robot name="mini_r56" xmlns:xacro="http://ros.org/wiki/xacro">
+
+  <!-- ====================================================================== -->
+  <!-- 1. VEHICLE DIMENSIONS & CONSTANTS                                      -->
+  <!-- ====================================================================== -->
+  <xacro:property name="wheelbase" value="2.467"/>
+  <xacro:property name="track_width_front" value="1.459"/>
+  <xacro:property name="track_width_rear" value="1.467"/>
+  <xacro:property name="wheel_radius" value="0.3043"/>
+  <xacro:property name="wheel_width" value="0.175"/>
+  <xacro:property name="wheel_mass" value="15.0"/>
+
+  <!-- Cylindrical Inertia Macro -->
+  <xacro:macro name="cylinder_inertia" params="m r h">
+    <inertial>
+      <mass value="${m}"/>
+      <inertia ixx="${(m/12) * (3*r*r + h*h)}" ixy="0" ixz="0" 
+               iyy="${(m/12) * (3*r*r + h*h)}" iyz="0" 
+               izz="${(m/2) * (r*r)}"/>
+    </inertial>
+  </xacro:macro>
+
+  <!-- ====================================================================== -->
+  <!-- 2. CORE CHASSIS (BASE LINK)                                            -->
+  <!-- ====================================================================== -->
+  <link name="base_link">
+    <!-- Visual Mesh -->
+    <visual>
+      <!-- RPY aligns the orientation. XYZ resets the CAD origin to center -->
+      <origin xyz="0 0 -0.3" rpy="1.5708 0 1.5708"/>
+      <geometry>
+        <mesh filename="file://$(find mini_r56_gazebo)/meshes/Mini_body.stl" scale="1 1 1"/>
+      </geometry>
+      <material name="chili_red"><color rgba="0.8 0.1 0.1 1.0"/></material>
+    </visual>
+
+    <!-- Kinematic Collision Box -->
+<!-- Kinematic Collision Box -->
+    <collision>
+      <origin xyz="0 0 0.5" rpy="0 0 0"/>
+      <geometry>
+        <!-- Shrunk strictly to fit between the front/rear and left/right axles -->
+        <box size="2.0 1.0 0.8"/>
+      </geometry>
+    </collision>
+    <!-- Inertial Tensor: Optimized for R56 Dynamics -->
+    <inertial>
+        <!-- CoM shifted forward (engine bias) and dramatically lowered (eliminates body roll) -->
+        <origin xyz="${wheelbase * 0.15} 0 0.05" rpy="0 0 0"/>
+        <mass value="1150.0"/>
+        <!-- Drastically reduced moment of inertia to eliminate sluggish rotation -->
+        <inertia ixx="250.0" ixy="0.0" ixz="0.0" iyy="900.0" iyz="0.0" izz="1100.0"/>
+    </inertial>
+  </link>
+
+  <!-- ====================================================================== -->
+  <!-- 3. FRONT STEERED & DRIVEN WHEELS (MACPHERSON KINEMATICS)               -->
+  <!-- ====================================================================== -->
+  <xacro:macro name="front_wheel" params="prefix y_offset">
+    <!-- Steering Knuckle (Virtual Link) -->
+    <link name="${prefix}_steer_link">
+      <inertial>
+        <mass value="5.0"/>
+        <inertia ixx="0.1" ixy="0" ixz="0" iyy="0.1" iyz="0" izz="0.1"/>
+      </inertial>
+    </link>
+
+<!-- Steering Joint: Zero friction loss for instant go-kart turn-in -->
+    <joint name="${prefix}_steering_joint" type="revolute">
+      <parent link="base_link"/>
+      <child link="${prefix}_steer_link"/>
+      <origin xyz="${wheelbase/2} ${y_offset} 0" rpy="0 0 0"/>
+      <axis xyz="0 0 1"/>
+      <dynamics damping="0.0" friction="0.0"/>
+      <!-- Steering agility maximized for instant rack response -->
+      <limit lower="-0.88" upper="0.88" effort="10000.0" velocity="1000.0"/>
+    </joint>
+
+    <!-- Wheel Physical Link -->
+    <link name="${prefix}_wheel_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+        <material name="black"><color rgba="0.1 0.1 0.1 1.0"/></material>
+      </visual>
+    <!-- Sphere collision hack for infinite lateral stability -->
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+            <sphere radius="${wheel_radius}"/>
+            </geometry>
+        </collision>
+      <xacro:cylinder_inertia m="${wheel_mass}" r="${wheel_radius}" h="${wheel_width}"/>
+    </link>
+
+    <!-- Drive Joint (Continuous: Y-Axis) -->
+<!-- Drive Joint (Continuous: Y-Axis) -->
+    <joint name="${prefix}_drive_joint" type="continuous">
+      <parent link="${prefix}_steer_link"/>
+      <child link="${prefix}_wheel_link"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <!-- CRITICAL FIX: Granting 10,000 Nm of torque to overcome 1150kg inertia -->
+<limit effort="50000.0" velocity="2000.0"/>
+    </joint>
+    <!-- Tire Friction & Contact Physics -->
+<!-- Tire Dynamics: High lateral grip & stiffness -->
+<!-- Tire Dynamics: High lateral grip & stiff sidewall -->
+    <gazebo reference="${prefix}_wheel_link">
+      <mu1>20.0</mu1>
+      <mu2>20.0</mu2>
+      <!-- Increased stiffness (kp) and tuned damping (kd) to simulate sport suspension -->
+      <kp>50000000.0</kp>
+      <kd>5000.0</kd>
+      <minDepth>0.005</minDepth>
+      <fdir1>1 0 0</fdir1>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:front_wheel prefix="front_left" y_offset="${track_width_front/2}"/>
+  <xacro:front_wheel prefix="front_right" y_offset="${-track_width_front/2}"/>
+
+  <!-- ====================================================================== -->
+  <!-- 4. REAR TRAILING WHEELS (Z-AXLE MULTI-LINK KINEMATICS)                 -->
+  <!-- ====================================================================== -->
+  <xacro:macro name="rear_wheel" params="prefix y_offset">
+    <link name="${prefix}_wheel_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+        <material name="black"><color rgba="0.1 0.1 0.1 1.0"/></material>
+      </visual>
+<!-- Sphere collision hack for infinite lateral stability -->
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <sphere radius="${wheel_radius}"/>
+        </geometry>
+      </collision>
+      <xacro:cylinder_inertia m="${wheel_mass}" r="${wheel_radius}" h="${wheel_width}"/>
+    </link>
+
+    <!-- Free-Spinning Joint (Continuous: Y-Axis) -->
+<!-- Free-Spinning Joint (Continuous: Y-Axis) -->
+    <joint name="${prefix}_drive_joint" type="continuous">
+      <parent link="base_link"/>
+      <child link="${prefix}_wheel_link"/>
+      <origin xyz="${-wheelbase/2} ${y_offset} 0" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <!-- CRITICAL FIX: Granting 10,000 Nm of torque -->
+      <limit effort="20000.0" velocity="300.0"/>
+    </joint>
+    <!-- Tire Friction & Contact Physics -->
+<!-- Tire Dynamics: High lateral grip & stiffness -->
+<!-- Tire Dynamics: High lateral grip & stiff sidewall -->
+    <gazebo reference="${prefix}_wheel_link">
+      <mu1>30.0</mu1>
+      <mu2>30.0</mu2>
+      <!-- Increased stiffness (kp) and tuned damping (kd) to simulate sport suspension -->
+      <kp>50000000.0</kp>
+      <kd>5000.0</kd>
+      <minDepth>0.005</minDepth>
+      <fdir1>1 0 0</fdir1>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:rear_wheel prefix="rear_left" y_offset="${track_width_rear/2}"/>
+  <xacro:rear_wheel prefix="rear_right" y_offset="${-track_width_rear/2}"/>
+
+
+<!-- ====================================================================== -->
+  <!-- 5. GAZEBO HARMONIC ACKERMANN PLUGIN                                    -->
+  <!-- ====================================================================== -->
+  <gazebo>
+    <plugin filename="libgz-sim-ackermann-steering-system.so" name="gz::sim::systems::AckermannSteering">
+      <!-- ... existing joint limits ... -->
+      <odom_publish_frequency>50</odom_publish_frequency>
+      <!-- Shifted to a dedicated namespace to avoid Prius interference -->
+      <topic>/mini/cmd_vel</topic>
+    </plugin>
+  </gazebo>
+</robot>

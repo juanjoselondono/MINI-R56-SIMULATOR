@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Super Monaco GP: R56 - Hardcore Edition</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+        body { background-color: #050505; color: #fff; font-family: 'Courier New', monospace; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; user-select: none; }
+        h1 { font-family: 'Press Start 2P', cursive; font-size: 16px; color: #ff3300; margin-bottom: 20px; text-shadow: 2px 2px #ffaa00;}
+        .container { display: flex; gap: 20px; max-width: 1250px; width: 100%; }
+        .game-section { flex: 2; display: flex; flex-direction: column; align-items: center; position: relative; }
+        
+        #gameWrapper { position: relative; width: 720px; height: 480px; }
+        canvas#gameCanvas { background-color: #222; border: 4px solid #333; width: 100%; height: 100%; image-rendering: pixelated; box-shadow: 0 0 25px rgba(255,50,0,0.2); }
+        
+        #startOverlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 10; border: 4px solid #444; box-sizing: border-box;}
+        #btn-start { background: #ff0000; color: #fff; font-family: 'Press Start 2P', cursive; font-size: 16px; padding: 15px 30px; border: 4px solid #fff; cursor: pointer; text-transform: uppercase; animation: pulse 1s infinite;}
+        #btn-start:hover { background: #ffaa00; color: #000; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+
+        .panel { flex: 1; background: #111; padding: 20px; border: 2px solid #333; height: 480px; overflow-y: auto; box-sizing: border-box; }
+        .panel h2 { font-size: 12px; border-bottom: 1px solid #444; padding-bottom: 8px; color: #ffaa00; margin-top: 0; font-family: 'Press Start 2P', cursive; }
+        .param-group { margin-bottom: 12px; }
+        .param-group label { display: block; font-size: 11px; margin-bottom: 5px; color: #ccc; }
+        .param-group input[type="range"] { width: 100%; accent-color: #ffaa00; }
+        .param-group .val { color: #fff; font-weight: bold; float: right; }
+        .controls { margin-top: 15px; text-align: center; font-size: 12px; color: #aaa; background: #111; padding: 10px; border: 1px solid #333; width: 720px; box-sizing: border-box;}
+        .controls strong { color: #ffeb3b; }
+        canvas#telemetryCanvas { background: #000; border: 1px solid #ffaa00; margin-top: 15px; width: 100%; height: 150px; }
+    </style>
+</head>
+<body>
+
+<h1>R56 DIGITAL TWIN - HARDCORE EDITION</h1>
+
+<div class="container">
+    <div class="game-section">
+        <div id="gameWrapper">
+            <div id="startOverlay">
+                <button id="btn-start">ENCENDER MOTOR</button>
+            </div>
+            <canvas id="gameCanvas" width="720" height="480"></canvas>
+        </div>
+        <div class="controls">
+            <strong>[W/ARRIBA]</strong> Acelerar | <strong>[S/ABAJO]</strong> Frenar | <strong>[A/D]</strong> Dirección<br><br>
+            <strong>[E]</strong> Subir Marcha (+) | <strong>[Q]</strong> Bajar Marcha (-) | <strong>[R]</strong> Reiniciar Motor
+        </div>
+    </div>
+
+    <div class="panel">
+        <h2>AJUSTES FÍSICOS</h2>
+        <div class="param-group"><label>Masa (M) [kg]: <span class="val" id="val-mass">1420</span></label><input type="range" id="inp-mass" min="1000" max="2000" step="10" value="1420"></div>
+        <div class="param-group"><label>Drag Aero (Cd): <span class="val" id="val-cd">0.378</span></label><input type="range" id="inp-cd" min="0.2" max="0.6" step="0.01" value="0.378"></div>
+        <div class="param-group"><label>Fricción (Mu): <span class="val" id="val-mu">0.90</span></label><input type="range" id="inp-mu" min="0.5" max="1.5" step="0.05" value="0.90"></div>
+        
+        <h2 style="margin-top: 20px;">TELEMETRÍA</h2>
+        <canvas id="telemetryCanvas"></canvas>
+    </div>
+</div>
+
+<script>
+// ============================================================================
+// 1. SISTEMA DE AUDIO (Sintetizador + Explosiones)
+// ============================================================================
+let audioCtx;
+let engineOsc;
+let engineGain;
+let isAudioInitialized = false;
+
+function initAudio() {
+    if(audioCtx) audioCtx.close();
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    engineOsc = audioCtx.createOscillator();
+    engineOsc.type = 'sawtooth';
+    
+    engineGain = audioCtx.createGain();
+    engineGain.gain.value = 0; 
+    
+    let filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 800;
+
+    engineOsc.connect(filter);
+    filter.connect(engineGain);
+    engineGain.connect(audioCtx.destination);
+    
+    engineOsc.start();
+    isAudioInitialized = true;
+    
+    document.getElementById('startOverlay').style.display = 'none';
+    if(state.engine_blown) resetGame();
+    lastTime = performance.now();
+    requestAnimationFrame(loop);
+}
+
+document.getElementById('btn-start').addEventListener('click', initAudio);
+
+function updateAudio(rpm, throttle) {
+    if (!isAudioInitialized || state.engine_blown) return;
+    
+    let pitch = 30 + (rpm * 0.035);
+    engineOsc.frequency.setTargetAtTime(pitch, audioCtx.currentTime, 0.05);
+    
+    let volume = 0.05 + (throttle * 0.15);
+    engineGain.gain.setTargetAtTime(volume, audioCtx.currentTime, 0.02);
+}
+
+function playExplosion() {
+    if (!audioCtx) return;
+    // Apagar motor
+    engineGain.gain.setValueAtTime(0, audioCtx.currentTime);
+    
+    // Generador de ruido blanco sintético para la explosión
+    let duration = 2.0;
+    let bufferSize = audioCtx.sampleRate * duration;
+    let buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    let data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (audioCtx.sampleRate * 0.3)); 
+    }
+    
+    let noise = audioCtx.createBufferSource();
+    noise.buffer = buffer;
+    
+    // Filtro para darle efecto de baja frecuencia (Booooom)
+    let filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(800, audioCtx.currentTime);
+    filter.frequency.exponentialRampToValueAtTime(10, audioCtx.currentTime + duration);
+    
+    noise.connect(filter);
+    filter.connect(audioCtx.destination);
+    noise.start();
+}
+
+// ============================================================================
+// 2. GEMELO DIGITAL - FÍSICA Y DAÑO DE MOTOR
+// ============================================================================
+const env = { g: 9.81, rho_air: 1.225, theta: 0 };
+const car = {
+    M: 1420, Cd: 0.378, A: 1.99,
+    gear_ratios: [3.214, 1.792, 1.194, 0.914, 0.784, 0.683],
+    final_drive: 4.353, eta_t: 0.92,
+    mass_factors: [0.50, 0.20, 0.18, 0.16, 0.14, 0.11],
+    R_w: 0.3043, mu: 0.90,
+    L: 2.467, c: 1.529, h: 0.503, t_f: 1.459,
+    K_phi_f: 15703, K_phi_r: 21118
+};
+car.K_phi = car.K_phi_f + car.K_phi_r;
+
+const engine_map = [
+    {rpm: 1000, t: 75}, {rpm: 1500, t: 120}, {rpm: 2000, t: 135},
+    {rpm: 2500, t: 145}, {rpm: 3000, t: 150}, {rpm: 3500, t: 155},
+    {rpm: 4000, t: 158}, {rpm: 4250, t: 160}, {rpm: 4500, t: 158},
+    {rpm: 5000, t: 155}, {rpm: 5500, t: 148}, {rpm: 6000, t: 142},
+    {rpm: 6400, t: 125}, {rpm: 6500, t: 0}
+];
+
+function getTorque(rpm) {
+    if (rpm <= engine_map[0].rpm) return engine_map[0].t;
+    if (rpm >= 6500) return 0; // Corte inyección
+    for (let i=0; i<engine_map.length-1; i++) {
+        if (rpm >= engine_map[i].rpm && rpm <= engine_map[i+1].rpm) {
+            let t = (rpm - engine_map[i].rpm) / (engine_map[i+1].rpm - engine_map[i].rpm);
+            return engine_map[i].t + t * (engine_map[i+1].t - engine_map[i].t);
+        }
+    }
+    return 0;
+}
+
+let state = { x: 0, v: 0, lat: 0, rpm: 1000, gear: 1, a_x: 0, time: 0, rpm_limiter: false, offroad_timer: 0, engine_blown: false, explosion_t: 0 };
+let inputs = { throttle: 0, brake: 0, steer: 0 };
+let shiftUpFlag = false, shiftDownFlag = false;
+
+function resetGame() {
+    state = { x: 0, v: 0, lat: 0, rpm: 1000, gear: 1, a_x: 0, time: 0, rpm_limiter: false, offroad_timer: 0, engine_blown: false, explosion_t: 0 };
+    telemetryData = [];
+    if(isAudioInitialized && engineGain) engineGain.gain.value = 0.05; // Restaurar idle audio
+}
+
+function updatePhysics(dt) {
+    if (state.engine_blown) {
+        state.explosion_t += dt;
+        // Si el motor explotó, se frena abruptamente (fricción de ruedas bloqueadas)
+        let F_friccion = car.M * env.g * car.mu;
+        let F_drag = 0.5 * env.rho_air * car.A * car.Cd * (state.v * state.v);
+        state.a_x = -(F_friccion + F_drag) / car.M;
+        state.v += state.a_x * dt;
+        if (state.v < 0) state.v = 0;
+        state.x += state.v * dt;
+        state.rpm = 0;
+        return; // Salir de física normal
+    }
+
+    if (shiftUpFlag && state.gear < 6) { state.gear++; shiftUpFlag = false; }
+    if (shiftDownFlag && state.gear > 1) { state.gear--; shiftDownFlag = false; }
+
+    let total_ratio = car.gear_ratios[state.gear - 1] * car.final_drive;
+    let wheel_rpm = (state.v / car.R_w) * total_ratio * (60 / (2 * Math.PI));
+    
+    // DESTRUCCIÓN DE MOTOR (Money Shift > 7200 RPM)
+    if (wheel_rpm > 7200) {
+        state.engine_blown = true;
+        playExplosion();
+        return;
+    }
+
+    let clutch_target_rpm = 3500; 
+    if (state.gear === 1 && wheel_rpm < clutch_target_rpm && inputs.throttle > 0.1) {
+        state.rpm = 1000 + (inputs.throttle * (clutch_target_rpm - 1000));
+        state.rpm = Math.max(state.rpm, wheel_rpm); 
+    } else {
+        state.rpm = Math.max(1000, wheel_rpm); 
+    }
+
+    // EFECTO REV LIMITER AGRESIVO ("Tatatatata")
+    if (state.rpm > 6500) {
+        state.rpm = 6200; // Rebote violento hacia abajo (Corte de combustible)
+        state.rpm_limiter = true;
+    } else {
+        state.rpm_limiter = false;
+    }
+
+    let T_engine = getTorque(state.rpm) * inputs.throttle;
+    let T_wheel = T_engine * total_ratio * car.eta_t;
+    let F_tractive = T_wheel / car.R_w;
+
+    let W_weight = car.M * env.g;
+    let num_Fx = car.mu * (W_weight * car.c / car.L);
+    let den_Fx = 1 + (car.h / car.L)*car.mu + ((2 * car.mu * car.R_w) / (car.final_drive * car.t_f)) * (car.K_phi_r / car.K_phi);
+    let F_x_max = num_Fx / den_Fx;
+    let F_tract_eff = Math.min(F_tractive, F_x_max);
+
+    let v_mph = (state.v * 3.6) / 1.60934;
+    let F_drag = 0.5 * env.rho_air * car.A * car.Cd * (state.v * state.v);
+    let F_rolling = (0.01 * (1 + (v_mph / 100))) * W_weight;
+    let F_brake = (0.90 * car.mu * W_weight) * inputs.brake;
+    let F_res = F_drag + F_rolling;
+    let M_eq = car.M * (1 + car.mass_factors[state.gear - 1]);
+    
+    if (inputs.brake > 0.05) state.a_x = -(F_brake + F_res) / M_eq;
+    else if (inputs.throttle > 0.01) state.a_x = (F_tract_eff - F_res) / M_eq;
+    else { let F_eng_brake = (30 * total_ratio) / car.R_w; state.a_x = -(F_res + F_eng_brake) / M_eq; }
+
+    state.v += state.a_x * dt;
+    if (state.v < 0) { state.v = 0; state.a_x = 0; }
+    state.x += state.v * dt;
+
+    let steer_angle = inputs.steer * 0.06;
+    let radius = steer_angle !== 0 ? car.L / Math.tan(steer_angle) : Infinity;
+    let F_y_req = steer_angle !== 0 ? car.M * (state.v * state.v) / Math.abs(radius) : 0;
+    
+    let grip_margin = 0.85 * F_x_max;
+    let resultant_F = Math.sqrt(Math.pow(Math.max(F_tract_eff, F_brake), 2) + Math.pow(F_y_req, 2));
+
+    let lat_speed = inputs.steer * (state.v * 0.018); 
+    
+    if (resultant_F > grip_margin && state.v > 10) {
+        lat_speed -= Math.sign(inputs.steer) * (resultant_F - grip_margin) * 0.0004;
+        state.v *= 0.9995; 
+    }
+
+    let current_curve = getSmoothedCurve(state.x);
+    lat_speed -= current_curve * (state.v * 0.022);
+    state.lat += lat_speed * dt;
+
+    if (Math.abs(state.lat) > 1.0) {
+        state.lat = Math.sign(state.lat) * 1.0;
+        state.v *= 0.992;
+        state.offroad_timer = 0.1;
+    } else {
+        if(state.offroad_timer > 0) state.offroad_timer -= dt;
+    }
+
+    state.time += dt;
+}
+
+// ============================================================================
+// 3. PISTA Y RENDERIZADO CON CURVAS CLOTOIDES SUAVIZADAS
+// ============================================================================
+const L_recta = 400; const R_curva = 80; const L_curva = Math.PI * R_curva;
+const L_lap = 2 * L_recta + 2 * L_curva;
+
+// NUEVO: Transición matemática suave (Ease-in / Ease-out)
+function getSmoothedCurve(x) {
+    let s = x % L_lap;
+    let maxC = 1 / R_curva;
+    let trans = 50; // 50 metros de suavizado (Curva de transición)
+
+    // Recta 1
+    if (s < L_recta - trans) return 0;
+    // Entrada a Curva 1
+    if (s < L_recta) return maxC * ((s - (L_recta - trans)) / trans);
+    // Plena Curva 1
+    if (s < L_recta + L_curva - trans) return maxC;
+    // Salida Curva 1
+    if (s < L_recta + L_curva) return maxC * (1 - ((s - (L_recta + L_curva - trans)) / trans));
+    // Recta 2
+    if (s < 2 * L_recta + L_curva - trans) return 0;
+    // Entrada a Curva 2
+    if (s < 2 * L_recta + L_curva) return maxC * ((s - (2 * L_recta + L_curva - trans)) / trans);
+    // Plena Curva 2
+    if (s < L_lap - trans) return maxC;
+    // Salida Curva 2
+    return maxC * (1 - ((s - (L_lap - trans)) / trans));
+}
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+function drawPoly(ctx, x1, y1, w1, x2, y2, w2, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x1 - w1, y1); ctx.lineTo(x1 + w1, y1);
+    ctx.lineTo(x2 + w2, y2); ctx.lineTo(x2 - w2, y2);
+    ctx.closePath(); ctx.fill();
+}
+
+let skyOffset = 0; 
+
+function render() {
+    ctx.fillStyle = '#4488ee'; ctx.fillRect(0, 0, W, H/2);
+    
+    // Mover fondo basado en curva suavizada futura
+    let lookaheadCurve = getSmoothedCurve(state.x + 40);
+    skyOffset -= lookaheadCurve * state.v * 0.05;
+    if (skyOffset > 200) skyOffset -= 200;
+    if (skyOffset < 0) skyOffset += 200;
+
+    // Montañas
+    ctx.fillStyle = '#225533';
+    ctx.beginPath();
+    ctx.moveTo(0, H/2);
+    for(let i=0; i<=W; i+=50) {
+        let h = Math.sin((i + skyOffset) * 0.03) * 40 + Math.cos((i + skyOffset) * 0.07) * 20;
+        ctx.lineTo(i, H/2 - 20 + h);
+    }
+    ctx.lineTo(W, H/2); ctx.fill();
+
+    ctx.fillStyle = '#3a6351'; ctx.fillRect(0, H/2, W, H/2);
+
+    let segL = 10; 
+    let drawDist = 120; 
+    let currentSeg = Math.floor(state.x / segL);
+    
+    let dx = 0, x = 0;
+    let camH = 1200; 
+    
+    let renderData = [];
+
+    // Cálculo Pseudo-3D
+    for (let i = 0; i < drawDist; i++) {
+        let segIdx = currentSeg + i;
+        let pZ = (i * segL) - (state.x % segL) + 1; 
+        
+        let curve = getSmoothedCurve(segIdx * segL) * 1.5; 
+        dx += curve;
+        x += dx;
+
+        let projY = H/2 + (camH / pZ);
+        let projW = 3500 / pZ;
+        let projX = W/2 + (x * 1200 / pZ) - (state.lat * projW * 1.5);
+        
+        renderData.push({y: projY, x: projX, w: projW, id: segIdx});
+    }
+
+    for(let i = renderData.length-1; i > 0; i--) {
+        let p = renderData[i];
+        let prev = renderData[i-1];
+        if (p.y >= prev.y) continue; 
+        
+        let grassColor = (p.id % 4 < 2) ? '#289e45' : '#1e7b34';
+        let rumbleColor = (p.id % 4 < 2) ? '#fff' : '#f00';
+        let roadColor = (p.id % 4 < 2) ? '#666' : '#555';
+        
+        ctx.fillStyle = grassColor; ctx.fillRect(0, p.y, W, prev.y - p.y + 1);
+        drawPoly(ctx, p.x, p.y, p.w * 1.1, prev.x, prev.y, prev.w * 1.1, rumbleColor);
+        drawPoly(ctx, p.x, p.y, p.w, prev.x, prev.y, prev.w, roadColor);
+        
+        if (p.id % 8 < 4) {
+            drawPoly(ctx, p.x, p.y, p.w * 0.02, prev.x, prev.y, prev.w * 0.02, '#e8d21d');
+        }
+    }
+
+    drawMiniR56(ctx, W/2, H - 40, inputs.steer);
+    drawArcadeHUD(ctx);
+    
+    // RENDERIZADO DEL LETRERO Y EXPLOSIÓN
+    if (state.engine_blown) {
+        // Overlay de alerta
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(0, H/2 - 50, W, 120);
+        
+        ctx.textAlign = 'center';
+        ctx.font = '22px "Press Start 2P"';
+        ctx.fillStyle = (Math.floor(state.explosion_t * 10) % 2 === 0) ? '#ff0000' : '#ffff00';
+        ctx.fillText("¡NO SEAS ANIMAL JAJAJA!", W/2, H/2);
+        
+        ctx.fillStyle = '#fff';
+        ctx.font = '12px "Press Start 2P"';
+        ctx.fillText("MOTOR DESTRUIDO POR MONEY SHIFT (+7200 RPM)", W/2, H/2 + 30);
+        ctx.fillText("PRESIONA [R] PARA PAGAR EL MECÁNICO", W/2, H/2 + 50);
+    }
+}
+
+function drawMiniR56(ctx, cx, cy, steer) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    
+    let bodyRoll = steer * 0.1 + (getSmoothedCurve(state.x) * state.v * 0.003);
+    let shakeY = (state.offroad_timer > 0 || state.engine_blown) ? (Math.random()*4 - 2) : 0;
+    ctx.rotate(bodyRoll); 
+    ctx.translate(0, shakeY);
+
+    ctx.fillStyle = '#000'; ctx.fillRect(-60, -20, 26, 35); ctx.fillRect(34, -20, 26, 35);  
+    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.roundRect(-64, -30, 128, 25, 6); ctx.fill();
+
+    // Humo / Fuego si explotó
+    if (state.engine_blown) {
+        ctx.fillStyle = 'rgba(255, 100, 0, 0.8)';
+        ctx.beginPath(); ctx.arc(-20 + Math.random()*40, -50 + Math.random()*20, 20 + Math.random()*30, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = 'rgba(100, 100, 100, 0.6)';
+        ctx.beginPath(); ctx.arc(-30 + Math.random()*60, -80 - Math.random()*40, 30 + Math.random()*40, 0, Math.PI*2); ctx.fill();
+    }
+
+    ctx.fillStyle = '#d32f2f'; 
+    ctx.beginPath(); ctx.moveTo(-58, -25); ctx.quadraticCurveTo(-65, -65, -50, -75); ctx.lineTo(50, -75); ctx.quadraticCurveTo(65, -65, 58, -25); ctx.fill();
+
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.ellipse(-48, -48, 8, 12, 0, 0, Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.ellipse(48, -48, 8, 12, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = (inputs.brake > 0.1 || state.engine_blown) ? '#ff0000' : '#880000'; 
+    ctx.beginPath(); ctx.ellipse(-48, -48, 6, 10, 0, 0, Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.ellipse(48, -48, 6, 10, 0, 0, Math.PI*2); ctx.fill();
+
+    ctx.fillStyle = '#fff'; ctx.fillRect(-22, -32, 44, 14);
+    ctx.fillStyle = '#000'; ctx.font = 'bold 12px Courier New'; ctx.fillText("R56", -11, -21);
+
+    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.moveTo(-44, -75); ctx.lineTo(-34, -110); ctx.lineTo(34, -110); ctx.lineTo(44, -75); ctx.fill();
+    ctx.fillStyle = '#eee'; ctx.beginPath(); ctx.roundRect(-36, -118, 72, 14, 5); ctx.fill();
+
+    ctx.restore();
+}
+
+function drawArcadeHUD(ctx) {
+    ctx.save();
+    ctx.textAlign = 'left';
+    
+    ctx.fillStyle = state.rpm_limiter ? '#f00' : '#ffea00';
+    ctx.font = '20px "Press Start 2P"';
+    ctx.fillText("RPM: " + (state.engine_blown ? "BROKEN" : Math.floor(state.rpm)), 20, 40);
+    
+    ctx.fillStyle = '#0ff';
+    ctx.fillText(state.engine_blown ? "GEAR X" : ("GEAR " + state.gear), 20, 80);
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#fff';
+    ctx.font = '28px "Press Start 2P"';
+    let speedKmh = Math.floor(state.v * 3.6);
+    ctx.fillText(speedKmh + " KM/H", W - 20, 50);
+
+    ctx.fillStyle = '#f00'; ctx.font = '14px "Press Start 2P"'; ctx.fillText("LAP TIME", W - 20, 90);
+    ctx.fillStyle = '#ffea00'; ctx.fillText(state.time.toFixed(2), W - 20, 120);
+    
+    let rpmPct = Math.min(1.0, (state.rpm - 1000) / 6200); // Ajuste visual barra RPM
+    if(state.engine_blown) rpmPct = 0;
+    ctx.fillStyle = '#333'; ctx.fillRect(20, 50, 200, 10);
+    ctx.fillStyle = (state.rpm > 6200) ? '#f00' : ((state.rpm > 4500) ? '#ffea00' : '#0f0');
+    ctx.fillRect(20, 50, 200 * rpmPct, 10);
+
+    ctx.restore();
+}
+
+// ============================================================================
+// 4. BUCLE PRINCIPAL
+// ============================================================================
+let telemetryData = [];
+const tCanvas = document.getElementById('telemetryCanvas');
+const tCtx = tCanvas.getContext('2d');
+
+function updateTelemetry() {
+    telemetryData.push({ t: state.time, v: state.v, rpm: state.rpm, ax: state.a_x });
+    if (telemetryData.length > 200) telemetryData.shift();
+
+    tCtx.clearRect(0, 0, tCanvas.width, tCanvas.height);
+    if(telemetryData.length < 2) return;
+
+    let w = tCanvas.width / 200;
+    tCtx.lineWidth = 2;
+    tCtx.strokeStyle = '#0f0'; tCtx.beginPath();
+    telemetryData.forEach((d, i) => tCtx.lineTo(i * w, 130 - (d.v * 1.5))); tCtx.stroke();
+    
+    tCtx.strokeStyle = '#f00'; tCtx.beginPath();
+    telemetryData.forEach((d, i) => tCtx.lineTo(i * w, 130 - (d.rpm / 60))); tCtx.stroke();
+}
+
+let keys = {};
+window.addEventListener('keydown', e => {
+    keys[e.code] = true;
+    if (e.code === 'KeyE') shiftUpFlag = true;
+    if (e.code === 'KeyQ') shiftDownFlag = true;
+    if (e.code === 'KeyR') resetGame();
+});
+window.addEventListener('keyup', e => keys[e.code] = false);
+
+['mass','cd','mu'].forEach(id => {
+    document.getElementById('inp-'+id).addEventListener('input', e => {
+        let v = parseFloat(e.target.value);
+        document.getElementById('val-'+id).innerText = v;
+        if(id==='mass') car.M = v;
+        if(id==='cd') car.Cd = v;
+        if(id==='mu') car.mu = v;
+    });
+});
+
+let lastTime = 0;
+let accumulator = 0;
+const PHYSICS_DT = 0.005; 
+let telemetryTimer = 0;
+
+function loop(currentTime) {
+    if(!isAudioInitialized) return;
+
+    let frameTime = (currentTime - lastTime) / 1000;
+    lastTime = currentTime;
+    if (frameTime > 0.25) frameTime = 0.25; 
+    
+    if (keys['KeyW'] || keys['ArrowUp']) inputs.throttle = Math.min(1, inputs.throttle + 0.2); 
+    else inputs.throttle = Math.max(0, inputs.throttle - 0.2);
+    if (keys['KeyS'] || keys['ArrowDown']) inputs.brake = Math.min(1, inputs.brake + 0.2); 
+    else inputs.brake = Math.max(0, inputs.brake - 0.3);
+    if (keys['KeyA'] || keys['ArrowLeft']) inputs.steer = Math.max(-1, inputs.steer - 0.15); 
+    else if (keys['KeyD'] || keys['ArrowRight']) inputs.steer = Math.min(1, inputs.steer + 0.15);
+    else inputs.steer *= 0.7; 
+
+    accumulator += frameTime;
+    while (accumulator >= PHYSICS_DT) {
+        updatePhysics(PHYSICS_DT);
+        accumulator -= PHYSICS_DT;
+    }
+    
+    updateAudio(state.rpm, inputs.throttle);
+    render();
+    
+    telemetryTimer += frameTime;
+    if(telemetryTimer > 0.1) { updateTelemetry(); telemetryTimer = 0; }
+
+    requestAnimationFrame(loop);
+}
+tCanvas.width = tCanvas.parentElement.clientWidth;
+</script>
+</body>
+</html>

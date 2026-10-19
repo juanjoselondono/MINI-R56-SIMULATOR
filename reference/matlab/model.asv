@@ -1,0 +1,210 @@
+%% GEMELO DIGITAL DE DINÁMICA LONGITUDINAL - MINI COOPER R56 (N16)
+% Autor: JARVIS
+% Arquitectura: Planta Empírica y Cinemática Acoplada (Perfil Optimizado)
+clear; clc; close all;
+
+%% 1. CONSTANTES GLOBALES DE FÍSICA Y COMBUSTIÓN
+env.g       = 9.81;                 % Aceleración de gravedad [m/s^2]
+env.rho_air = 1.225;                % Densidad del aire estándar [kg/m^3]
+
+% --- CONFIGURACIÓN DE PENDIENTE DE LA VÍA ---
+slope_mode  = 'pct';                % Opciones: 'deg' (Grados), 'pct' (Porcentaje %), 'rad' (Radianes)
+slope_value = 10;                   % Ingrese el valor según el modo elegido
+
+switch lower(slope_mode)
+    case 'deg'
+        env.theta = deg2rad(slope_value);           % Conversión de Grados a Radianes
+    case 'pct'
+        env.theta = atan(slope_value / 100);        % Conversión de Porcentaje (%) a Radianes
+    case 'rad'
+        env.theta = slope_value;                    % Asignación directa en Radianes
+    otherwise
+        error('Modo de pendiente no válido. Use ''deg'', ''pct'' o ''rad''.');
+end
+
+% Termodinámica del Combustible
+fuel.LHV    = 44e6;                 % Poder Calorífico Inferior [J/kg]
+fuel.AFR    = 14.7;                 % Relación Estequiométrica Aire-Combustible
+
+%% 2. MATRIZ DE ESPECIFICACIONES DEL VEHÍCULO (Motor N16)
+car.M           = 1420;             % Peso en orden de marcha [kg]
+car.Cd          = 0.378;            % Coeficiente de resistencia aerodinámica (Drag)
+car.A           = 1.99;             % Área frontal proyectada [m^2]
+car.gear_ratios = [3.214, 1.792, 1.194, 0.914, 0.784, 0.683]; % Caja manual GS6-55BG
+car.final_drive = 4.353;            % Relación del diferencial final
+car.eta_t       = 0.92;             % Eficiencia de la transmisión (~92%)
+
+% Factores de masa equivalente por inercia rotacional (1ª a 6ª marcha)
+car.mass_factors = [0.50, 0.20, 0.18, 0.16, 0.14, 0.11];
+
+% Geometría del Motor
+car.V_d         = 1.598e-3;         % Desplazamiento volumétrico [m^3]
+car.CR          = 11.0;             % Relación de compresión
+% Neumáticos y Ruedas (175/65 R15)
+tire_width      = 0.175;
+aspect_ratio    = 0.65;
+rim_diameter    = 15 * 0.0254;
+car.R_w         = (rim_diameter / 2) + (tire_width * aspect_ratio); % Radio efectivo ~0.3043 m
+
+%% 3. MODELO DE PLANTA EMPÍRICA DEL MOTOR (Datos de Dinamómetro)
+car.rpm_axis    = 1000:50:6500;
+car.omega       = car.rpm_axis * (2 * pi / 60); % Velocidad angular [rad/s]
+% Nodos críticos extraídos de la curva empírica
+rpm_raw    = [1000, 1500, 2000, 2500, 3000, 3500, 4000, 4250, 4500, 5000, 5500, 6000, 6400, 6500];
+torque_raw = [75, 120, 135, 145, 150, 155, 158, 160, 158, 155, 148, 142, 125, 118]; 
+% Interpolación PCHIP del Torque 
+car.T_engine = interp1(rpm_raw, torque_raw, car.rpm_axis, 'pchip');
+% Cálculo acoplado de Potencia (P = T * w)
+car.P_engine_W  = car.T_engine .* car.omega;     % Potencia en Vatios [W]
+car.HP_engine   = car.P_engine_W / 745.7;        % Potencia en HP
+
+%% 4. RESISTENCIAS LONGITUDINALES (AMBIENTAL Y VÍA)
+v_kmh = 0.1:1:220;         % Rango de velocidad [km/h] (evitamos 0 exacto para división por velocidad)
+v_ms  = v_kmh / 3.6;       % Conversión a [m/s]
+v_mph = v_kmh / 1.60934;   % Conversión a millas por hora [mph]
+
+% ------------------------------- Drag ---------------------------------
+F_drag    = 0.5 * env.rho_air * car.A * car.Cd * (v_ms.^2);
+
+% ------------------------------- Rolling ------------------------------
+F_normal  = car.M * env.g * cos(env.theta) * ones(size(v_ms));
+f_r_dynamic = 0.01 .* (1 + (v_mph ./ 100));
+F_rolling = f_r_dynamic .* F_normal; 
+
+% ------------------------------- Pendiente ----------------------------
+F_pend    = car.M * env.g * sin(env.theta) * ones(size(v_ms));
+
+% --------------------------- Demanda Ambiental -----------------------
+F_resistive   = F_drag + F_rolling + F_pend;
+P_demanded_W  = F_resistive .* v_ms;            % Potencia requerida en Vatios [W]
+P_demanded_kW = P_demanded_W / 1000;            % En kW
+
+%% 5. MULTIPLICACIÓN DE TRANSMISIÓN Y CÁLCULOS POR MARCHA
+num_gears = length(car.gear_ratios);
+V_gear_kmh     = zeros(num_gears, length(car.rpm_axis));
+P_available_kW = zeros(num_gears, length(car.rpm_axis));
+T_wheel_Nm     = zeros(num_gears, length(car.rpm_axis));
+a_x_ms2        = zeros(num_gears, length(car.rpm_axis));
+
+for g = 1:num_gears
+    total_ratio = car.gear_ratios(g) * car.final_drive;
+    
+    % Correspondencia cinemática
+    w_wheel = car.omega / total_ratio;
+    v_wheel_ms = w_wheel * car.R_w;
+    V_gear_kmh(g, :) = v_wheel_ms * 3.6;
+    
+    % Potencia disponible en rueda (kW)
+    P_available_kW(g, :) = (car.P_engine_W * car.eta_t) / 1000;
+    
+    % Torque en rueda
+    T_wheel_Nm(g, :) = car.T_engine * total_ratio * car.eta_t;
+    
+    % Fuerza tractiva y aceleración por marcha
+    F_tractive = T_wheel_Nm(g, :) / car.R_w;
+    v_mph_gear = V_gear_kmh(g, :) / 1.60934;
+    F_drag_gear = 0.5 * env.rho_air * car.A * car.Cd * (v_wheel_ms.^2);
+    F_rolling_gear = (0.01 .* (1 + (v_mph_gear ./ 100))) .* (car.M * env.g * cos(env.theta));
+    F_pend_gear = car.M * env.g * sin(env.theta);
+    F_res_gear = F_drag_gear + F_rolling_gear + F_pend_gear;
+    
+    M_equivalent = car.M * (1 + car.mass_factors(g));
+    a_x_ms2(g, :) = (F_tractive - F_res_gear) / M_equivalent;
+end
+
+%% 6. SISTEMA DE VISUALIZACIÓN GRÁFICA (PANEL PRINCIPAL - 5 SUBGRÁFICOS)
+figure('Name', 'Gemelo Digital - Dinámica Vehicular R56 (N16)', 'Color', [0.1 0.1 0.1], 'Position', [50 30 1300 900]);
+colors = lines(num_gears);
+
+% Subgráfico 1: Planta de Rendimiento del Motor
+ax1 = subplot(3, 2, 1);
+set(ax1, 'Color', 'k', 'XColor', 'w', 'YColor', 'w'); hold on; grid on;
+yyaxis left
+plot(car.rpm_axis, car.T_engine, 'Color', [1.0, 0.62, 0.23], 'LineWidth', 2.5);
+ylabel('Torque [Nm]', 'Color', 'w', 'FontWeight', 'bold'); ylim([0 200]);
+yyaxis right
+plot(car.rpm_axis, car.HP_engine, '--', 'Color', [0.88, 0.42, 0.46], 'LineWidth', 2.5);
+ylabel('Potencia [HP]', 'Color', 'w', 'FontWeight', 'bold'); ylim([0 200]);
+xlabel('Motor [RPM]', 'Color', 'w'); title('Planta de Rendimiento del Motor', 'Color', 'w');
+
+% Subgráfico 2: Fuerzas de Resistencia Acopladas
+ax2 = subplot(3, 2, 2);
+set(ax2, 'Color', 'k', 'XColor', 'w', 'YColor', 'w'); hold on; grid on;
+plot(v_kmh, F_drag, 'w--', 'LineWidth', 1.5);
+plot(v_kmh, F_rolling, 'b-.', 'LineWidth', 2.0); 
+plot(v_kmh, F_pend, 'g:', 'LineWidth', 2.0); 
+plot(v_kmh, F_resistive, 'r-', 'LineWidth', 2);
+xlabel('Velocidad [km/h]', 'Color', 'w'); ylabel('Fuerza [N]', 'Color', 'w');
+title('Fuerzas de Resistencia Acopladas', 'Color', 'w');
+legend('F_{drag}', 'F_{rolling}', 'F_{pend}', 'F_{total}', 'TextColor', 'w', 'Color', 'k', 'Location', 'northwest');
+
+% Subgráfico 3: Mapa Cinemático
+ax3 = subplot(3, 2, 3);
+set(ax3, 'Color', 'k', 'XColor', 'w', 'YColor', 'w'); hold on; grid on;
+gear_legends = cell(num_gears, 1);
+for g = 1:num_gears
+    plot(V_gear_kmh(g, :), car.rpm_axis, 'Color', colors(g, :), 'LineWidth', 2.0);
+    gear_legends{g} = sprintf('%d° Marcha', g);
+end
+xlabel('Velocidad [km/h]', 'Color', 'w'); ylabel('Motor [RPM]', 'Color', 'w');
+title('Mapa Cinemático: Velocidad vs RPM por Marcha', 'Color', 'w');
+xlim([0 260]); ylim([1000 6500]);
+legend(gear_legends, 'TextColor', 'w', 'Color', 'k', 'Location', 'southeast');
+
+% Subgráfico 4: Torque Efectivo en Rueda
+ax4 = subplot(3, 2, 4);
+set(ax4, 'Color', 'k', 'XColor', 'w', 'YColor', 'w'); hold on; grid on;
+torque_legends = cell(num_gears, 1);
+for g = 1:num_gears
+    plot(V_gear_kmh(g, :), T_wheel_Nm(g, :), 'Color', colors(g, :), 'LineWidth', 2.0);
+    torque_legends{g} = sprintf('%d° Marcha', g);
+end
+xlabel('Velocidad [km/h]', 'Color', 'w'); ylabel('Torque en Rueda [Nm]', 'Color', 'w');
+title('Torque Efectivo en Rueda por Marcha', 'Color', 'w'); xlim([0 260]);
+legend(torque_legends, 'TextColor', 'w', 'Color', 'k', 'Location', 'northeast');
+
+% Subgráfico 5: Balance de Potencia del Vehículo (Restaurado)
+ax5 = subplot(3, 2, [5, 6]);
+set(ax5, 'Color', 'k', 'XColor', 'w', 'YColor', 'w'); hold on; grid on;
+plot(v_kmh, P_demanded_kW, 'r-', 'LineWidth', 2.5);
+power_legends = cell(num_gears + 1, 1);
+power_legends{1} = 'Potencia Requerida (Ambiente)';
+for g = 1:num_gears
+    plot(V_gear_kmh(g, :), P_available_kW(g, :), 'Color', colors(g, :), 'LineWidth', 1.8);
+    power_legends{g + 1} = sprintf('%d° Marcha', g);
+end
+xlabel('Velocidad [km/h]', 'Color', 'w'); ylabel('Potencia [kW]', 'Color', 'w');
+title('Balance de Potencia del Vehículo', 'Color', 'w'); 
+ylim([0 max(P_available_kW(1, :))*1.2]); xlim([0 260]);
+legend(power_legends, 'TextColor', 'w', 'Color', 'k', 'Location', 'northwest');
+
+%% 7. PESTAÑA NUEVA: CAPACIDAD Y ENVOLVENTE MÁXIMA DE ACELERACIÓN
+figure('Name', 'Capacidad y Envolvente de Aceleración Longitudinal', 'Color', [0.1 0.1 0.1], 'Position', [100 100 950 650]);
+ax6 = axes;
+set(ax6, 'Color', 'k', 'XColor', 'w', 'YColor', 'w'); hold on; grid on;
+
+accel_legends = cell(num_gears + 1, 1);
+
+% 1. Curvas de aceleración por cada marcha
+for g = 1:num_gears
+    plot(V_gear_kmh(g, :), a_x_ms2(g, :), 'Color', colors(g, :), 'LineWidth', 1.8, 'LineStyle', '--');
+    accel_legends{g} = sprintf('%d° Marcha', g);
+end
+
+% 2. Cálculo de la Envolvente Teórica (Potencia Máxima Disponible continua menos Demanda Ambiental)
+P_max_avail_W = max(car.P_engine_W) * car.eta_t;                % Potencia pico continua en rueda [W]
+P_excess_W     = max(0, P_max_avail_W - P_demanded_W);          % Potencia neta disponible [W]
+F_excess       = P_excess_W ./ v_ms;                             % Fuerza neta [N]
+M_eq_avg       = car.M * (1 + mean(car.mass_factors));            % Masa equivalente promedio
+a_x_envelope   = F_excess / M_eq_avg;                             % Envolvente teórica [m/s^2]
+
+% Dibujar la Envolvente de Aceleración
+plot(v_kmh, a_x_envelope, 'm-', 'LineWidth', 3.0);
+accel_legends{num_gears + 1} = 'Envolvente Máxima Neta (P_{disp} - P_{dem})';
+
+yline(0, 'w--', 'LineWidth', 1.2); % Línea de referencia a_x = 0
+xlabel('Velocidad [km/h]', 'Color', 'w'); 
+ylabel('Aceleración a_x [m/s^2]', 'Color', 'w');
+title('Capacidad por Marcha y Envolvente Neta de Aceleración', 'Color', 'w'); 
+xlim([0 260]); ylim([-0.5 max(a_x_ms2(1, :))*1.1]);
+legend(accel_legends, 'TextColor', 'w', 'Color', 'k', 'Location', 'northeast');

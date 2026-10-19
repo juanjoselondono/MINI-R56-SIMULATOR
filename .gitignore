@@ -1,0 +1,7 @@
+.godot/
+bin/
+obj/
+*.user
+.vs/
+validation/out/
+*.tmp.m
