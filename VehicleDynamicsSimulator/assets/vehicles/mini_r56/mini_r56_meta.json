@@ -1,0 +1,50 @@
+{
+  "frame": "Godot (Y up, car faces -Z), origin on ground below CG",
+  "wheels": {
+    "rl": {
+      "hub": [
+        -0.75,
+        0.31,
+        1.529
+      ],
+      "triangles": 260
+    },
+    "rr": {
+      "hub": [
+        0.75,
+        0.31,
+        1.529
+      ],
+      "triangles": 254
+    },
+    "fl": {
+      "hub": [
+        -0.75,
+        0.31,
+        -0.954
+      ],
+      "triangles": 353
+    },
+    "fr": {
+      "hub": [
+        0.75,
+        0.31,
+        -0.954
+      ],
+      "triangles": 342
+    }
+  },
+  "body": {
+    "triangles": 10221,
+    "aabb_min": [
+      -0.9657,
+      -0.0041,
+      -1.7556
+    ],
+    "aabb_max": [
+      0.9628,
+      1.4309,
+      2.144
+    ]
+  }
+}
