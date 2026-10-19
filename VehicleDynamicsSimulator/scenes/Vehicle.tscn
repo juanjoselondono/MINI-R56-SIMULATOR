@@ -1,0 +1,159 @@
+[gd_scene load_steps=16 format=3]
+
+[ext_resource type="Script" path="res://scripts/vehicle/VehicleController.cs" id="1_ctrl"]
+[ext_resource type="Script" path="res://scripts/vehicle/VehicleVisuals.cs" id="2_vis"]
+[ext_resource type="ArrayMesh" path="res://assets/vehicles/mini_r56/body.obj" id="3_body"]
+[ext_resource type="ArrayMesh" path="res://assets/vehicles/mini_r56/wheel_fl.obj" id="4_wfl"]
+[ext_resource type="ArrayMesh" path="res://assets/vehicles/mini_r56/wheel_fr.obj" id="5_wfr"]
+[ext_resource type="ArrayMesh" path="res://assets/vehicles/mini_r56/wheel_rl.obj" id="6_wrl"]
+[ext_resource type="ArrayMesh" path="res://assets/vehicles/mini_r56/wheel_rr.obj" id="7_wrr"]
+
+[sub_resource type="StandardMaterial3D" id="Mat_paint"]
+albedo_color = Color(0.72, 0.06, 0.07, 1)
+metallic = 0.35
+roughness = 0.32
+clearcoat_enabled = true
+clearcoat_roughness = 0.12
+
+[sub_resource type="StandardMaterial3D" id="Mat_tyre"]
+albedo_color = Color(0.06, 0.06, 0.065, 1)
+roughness = 0.9
+
+[sub_resource type="StandardMaterial3D" id="Mat_brakelight"]
+resource_local_to_scene = true
+albedo_color = Color(0.35, 0.02, 0.02, 1)
+emission_enabled = true
+emission = Color(1, 0.05, 0.03, 1)
+emission_energy_multiplier = 0.6
+
+[sub_resource type="StandardMaterial3D" id="Mat_headlamp"]
+albedo_color = Color(0.9, 0.92, 0.95, 1)
+emission_enabled = true
+emission = Color(1, 0.97, 0.88, 1)
+emission_energy_multiplier = 1.5
+
+[sub_resource type="BoxMesh" id="Mesh_taillight"]
+size = Vector3(0.18, 0.12, 0.04)
+
+[sub_resource type="CylinderMesh" id="Mesh_headlamp"]
+top_radius = 0.09
+bottom_radius = 0.09
+height = 0.04
+
+[sub_resource type="ParticleProcessMaterial" id="Smoke_process"]
+direction = Vector3(0, 1, 0)
+spread = 25.0
+initial_velocity_min = 1.0
+initial_velocity_max = 2.5
+gravity = Vector3(0, 0.6, 0)
+scale_min = 0.6
+scale_max = 1.8
+color = Color(0.25, 0.25, 0.25, 0.7)
+
+[sub_resource type="StandardMaterial3D" id="Smoke_mat"]
+transparency = 1
+shading_mode = 0
+vertex_color_use_as_albedo = true
+billboard_mode = 3
+particles_anim_h_frames = 1
+particles_anim_v_frames = 1
+particles_anim_loop = false
+
+[sub_resource type="QuadMesh" id="Smoke_quad"]
+material = SubResource("Smoke_mat")
+size = Vector2(0.8, 0.8)
+
+[node name="Vehicle" type="Node3D"]
+script = ExtResource("1_ctrl")
+
+[node name="Visuals" type="Node3D" parent="."]
+script = ExtResource("2_vis")
+
+[node name="Body" type="MeshInstance3D" parent="Visuals"]
+mesh = ExtResource("3_body")
+surface_material_override/0 = SubResource("Mat_paint")
+
+[node name="WheelFL" type="Node3D" parent="Visuals"]
+position = Vector3(-0.75, 0.31, -0.954)
+
+[node name="Spin" type="Node3D" parent="Visuals/WheelFL"]
+
+[node name="Mesh" type="MeshInstance3D" parent="Visuals/WheelFL/Spin"]
+mesh = ExtResource("4_wfl")
+surface_material_override/0 = SubResource("Mat_tyre")
+
+[node name="WheelFR" type="Node3D" parent="Visuals"]
+position = Vector3(0.75, 0.31, -0.954)
+
+[node name="Spin" type="Node3D" parent="Visuals/WheelFR"]
+
+[node name="Mesh" type="MeshInstance3D" parent="Visuals/WheelFR/Spin"]
+mesh = ExtResource("5_wfr")
+surface_material_override/0 = SubResource("Mat_tyre")
+
+[node name="WheelRL" type="Node3D" parent="Visuals"]
+position = Vector3(-0.75, 0.31, 1.529)
+
+[node name="Spin" type="Node3D" parent="Visuals/WheelRL"]
+
+[node name="Mesh" type="MeshInstance3D" parent="Visuals/WheelRL/Spin"]
+mesh = ExtResource("6_wrl")
+surface_material_override/0 = SubResource("Mat_tyre")
+
+[node name="WheelRR" type="Node3D" parent="Visuals"]
+position = Vector3(0.75, 0.31, 1.529)
+
+[node name="Spin" type="Node3D" parent="Visuals/WheelRR"]
+
+[node name="Mesh" type="MeshInstance3D" parent="Visuals/WheelRR/Spin"]
+mesh = ExtResource("7_wrr")
+surface_material_override/0 = SubResource("Mat_tyre")
+
+[node name="TailLightL" type="MeshInstance3D" parent="Visuals"]
+position = Vector3(-0.62, 0.78, 2.02)
+mesh = SubResource("Mesh_taillight")
+surface_material_override/0 = SubResource("Mat_brakelight")
+
+[node name="TailLightR" type="MeshInstance3D" parent="Visuals"]
+position = Vector3(0.62, 0.78, 2.02)
+mesh = SubResource("Mesh_taillight")
+surface_material_override/0 = SubResource("Mat_brakelight")
+
+[node name="BrakeGlow" type="OmniLight3D" parent="Visuals"]
+visible = false
+position = Vector3(0, 0.8, 2.3)
+light_color = Color(1, 0.08, 0.05, 1)
+light_energy = 1.5
+omni_range = 3.0
+
+[node name="HeadlampL" type="MeshInstance3D" parent="Visuals"]
+transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, -0.6, 0.72, -1.49)
+mesh = SubResource("Mesh_headlamp")
+surface_material_override/0 = SubResource("Mat_headlamp")
+
+[node name="HeadlampR" type="MeshInstance3D" parent="Visuals"]
+transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0.6, 0.72, -1.49)
+mesh = SubResource("Mesh_headlamp")
+surface_material_override/0 = SubResource("Mat_headlamp")
+
+[node name="HeadlightL" type="SpotLight3D" parent="Visuals"]
+visible = false
+position = Vector3(-0.6, 0.72, -1.55)
+light_energy = 4.0
+spot_range = 60.0
+spot_angle = 28.0
+
+[node name="HeadlightR" type="SpotLight3D" parent="Visuals"]
+visible = false
+position = Vector3(0.6, 0.72, -1.55)
+light_energy = 4.0
+spot_range = 60.0
+spot_angle = 28.0
+
+[node name="EngineSmoke" type="GPUParticles3D" parent="Visuals"]
+position = Vector3(0, 1.0, -1.1)
+emitting = false
+amount = 48
+lifetime = 2.5
+process_material = SubResource("Smoke_process")
+draw_pass_1 = SubResource("Smoke_quad")

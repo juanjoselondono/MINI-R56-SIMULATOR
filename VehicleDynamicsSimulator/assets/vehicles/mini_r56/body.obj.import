@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://dlny522wrempg"
+path="res://.godot/imported/body.obj-d850a3a49f8db39578eb3e0f0a7acaba.mesh"
+
+[deps]
+
+files=["res://.godot/imported/body.obj-d850a3a49f8db39578eb3e0f0a7acaba.mesh"]
+
+source_file="res://assets/vehicles/mini_r56/body.obj"
+dest_files=["res://.godot/imported/body.obj-d850a3a49f8db39578eb3e0f0a7acaba.mesh", "res://.godot/imported/body.obj-d850a3a49f8db39578eb3e0f0a7acaba.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

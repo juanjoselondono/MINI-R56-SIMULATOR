@@ -1,0 +1,12 @@
+<Project Sdk="Godot.NET.Sdk/4.7.2">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Simulator</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Godot-independent physics core (port of reference/matlab/model.m). -->
+    <ProjectReference Include="../src/VehicleDynamics.Core/VehicleDynamics.Core.csproj" />
+  </ItemGroup>
+</Project>
