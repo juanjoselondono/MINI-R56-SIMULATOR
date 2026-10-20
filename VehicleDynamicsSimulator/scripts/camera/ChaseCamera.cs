@@ -6,7 +6,8 @@ using Simulator.Vehicle;
 namespace Simulator.CameraRig;
 
 /// <summary>
-/// Chase camera (smoothed, behind the car) and cockpit camera (driver eye point, rigid). Toggle with C.
+/// Chase camera (smoothed, behind the car) and bonnet camera (rigid, above the hood). Toggle with C.
+/// A true cockpit view is not offered: Mini_body.stl is a closed shell without interior or transparent glazing.
 /// The chase camera is pulled in front of barriers with a ray query against the track's barrier collision body.
 /// Impact shake only offsets the view; it never touches the vehicle state.
 /// </summary>
@@ -17,10 +18,10 @@ public partial class ChaseCamera : Camera3D
     [Export] public float Height { get; set; } = 2.3f;
     [Export] public float LookAhead { get; set; } = 4f;
     [Export] public float PositionSharpness { get; set; } = 6f;
-    /// <summary>Left-hand-drive eye point in car coordinates (car faces -Z, left is -X).</summary>
-    [Export] public Vector3 CockpitEye { get; set; } = new(-0.36f, 1.18f, 0.25f);
+    /// <summary>Bonnet camera in car coordinates (car faces -Z): 0.2 m above the hood, ahead of the windscreen base.</summary>
+    [Export] public Vector3 BonnetEye { get; set; } = new(0f, 1.18f, -0.75f);
 
-    public bool Cockpit { get; private set; }
+    public bool Bonnet { get; private set; }
     private Node3D? _target;
     private float _shake;
     private readonly RandomNumberGenerator _rng = new() { Seed = 3 };
@@ -34,6 +35,8 @@ public partial class ChaseCamera : Camera3D
     /// <summary>Adds view shake; intensity ~ impact severity / 10, decays in about half a second.</summary>
     public void AddShake(float intensity) => _shake = Mathf.Clamp(_shake + intensity, 0, 1.5f);
 
+    public void SetBonnet(bool on) => Bonnet = on;
+
     /// <summary>Snap to the target (after a reset/teleport) instead of smoothing across the jump.</summary>
     public void Snap()
     {
@@ -43,15 +46,15 @@ public partial class ChaseCamera : Camera3D
     public override void _Process(double delta)
     {
         if (_target == null) return;
-        if (!UiFocus.IsTyping(GetViewport()) && Input.IsActionJustPressed(InputSetup.ToggleCamera)) Cockpit = !Cockpit;
+        if (!UiFocus.IsTyping(GetViewport()) && Input.IsActionJustPressed(InputSetup.ToggleCamera)) Bonnet = !Bonnet;
 
         var t = _target.GlobalTransform;
         _shake = Mathf.Max(0, _shake - 2.5f * (float)delta);
         var jitter = new Vector3(_rng.RandfRange(-1, 1), _rng.RandfRange(-1, 1), _rng.RandfRange(-1, 1)) * (_shake * _shake * 0.25f);
 
-        if (Cockpit)
+        if (Bonnet)
         {
-            GlobalTransform = new Transform3D(t.Basis, t * CockpitEye + jitter * 0.3f);
+            GlobalTransform = new Transform3D(t.Basis, t * BonnetEye + jitter * 0.3f);
             Fov = 72;
             return;
         }

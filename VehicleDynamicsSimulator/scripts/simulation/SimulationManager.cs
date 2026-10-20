@@ -67,6 +67,18 @@ public partial class SimulationManager : Node
         var trackArg = OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--track="));
         if (trackArg != null) GameSession.TrackName = trackArg["--track=".Length..];
         LoadTrack(GameSession.TrackName);
+
+        var args = OS.GetCmdlineUserArgs();
+        if (args.Contains("--selftest")) AddChild(new Dev.SelfTest { Name = "SelfTest" });
+        Dev.ScreenshotRig.AttachIfRequested(this);
+        Dev.PerfProbe.AttachIfRequested(this);
+        if (args.Contains("--demo"))
+        {
+            // Scripted centreline driver through the normal input path (screenshots / attract mode).
+            var driver = new Dev.CentrelineDriver(Track.Geometry);
+            Vehicle.AutoShift = true;
+            Vehicle.Autopilot = vc => driver.Drive(vc.Dynamics.State, vc.Dynamics.Outputs, vc.Parameters);
+        }
     }
 
     public void LoadTrack(string name)
@@ -144,11 +156,10 @@ public partial class SimulationManager : Node
         var st = Vehicle.Dynamics.State;
         var pr = Track.Geometry.Project(st.X, st.Y);
         var pose = Track.Geometry.Pose(pr.S);
-        Vehicle.ResetVehicleAt(pose.X, pose.Y, pose.Psi);
+        Vehicle.ResetVehicleAt(pose.X, pose.Y, pose.Psi, keepEngineDamage: true);
         Collisions.Reset();
         Laps.InvalidateLap();
         _lastGear = 1;
-        _blownLogged = false;
         Telemetry.AddEvent(FormattableString.Invariant($"recover:s={pr.S:F1}"));
         Notify("Recovered to track (lap invalid)");
         Camera?.Snap();

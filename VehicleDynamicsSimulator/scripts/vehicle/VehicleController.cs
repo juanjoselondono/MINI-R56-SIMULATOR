@@ -34,6 +34,9 @@ public partial class VehicleController : Node3D
     public InputShaper Shaper { get; } = new();
     public VehicleInputs LastInputs { get; private set; }
     public bool HeadlightsOn { get; private set; }
+    /// <summary>Wall time of the last frame's physics advance (all substeps + hooks) [ms], and its step count.</summary>
+    public double LastAdvanceMs { get; private set; }
+    public int LastStepsThisFrame { get; private set; }
 
     /// <summary>
     /// Scripted driver for tests (self-test, autodrive): returns (throttle, brake, steer[-1..1]) levels instead of the
@@ -56,6 +59,13 @@ public partial class VehicleController : Node3D
         get => _recorder;
         set { _recorder = value; if (Loop != null) Loop.Recorder = value; }
     }
+
+    private int _requestedShift;
+    private (double Throttle, double Brake, double Steer) _rawTargets;
+    private VehicleState? _autodriveReport;
+
+    /// <summary>Scripted shift request (+1 up, -1 down), delivered as an edge on the next frame like a key press.</summary>
+    public void RequestShift(int direction) => _requestedShift = Math.Sign(direction);
 
     private VehicleVisuals? _visuals;
     private (double X, double Y, double Psi) _spawn;
@@ -90,14 +100,19 @@ public partial class VehicleController : Node3D
     /// <summary>Rebuilds the model at the spawn pose, at rest, with the current parameters.</summary>
     public void ResetVehicle() => ResetVehicleAt(_spawn.X, _spawn.Y, _spawn.Psi);
 
-    /// <summary>Explicit reset to a pose at rest (spawn or recover-to-track). The only teleport in the game.</summary>
-    public void ResetVehicleAt(double x, double y, double psi)
+    /// <summary>
+    /// Explicit reset to a pose at rest (spawn or recover-to-track). The only teleport in the game.
+    /// <paramref name="keepEngineDamage"/>: recovering moves the car but does not repair a destroyed engine.
+    /// </summary>
+    public void ResetVehicleAt(double x, double y, double psi, bool keepEngineDamage = false)
     {
         bool paused = Loop?.Clock.Paused ?? false;
-        Dynamics = new Dyn(Parameters, VehicleState.AtRest(x, y, psi));
+        var rest = VehicleState.AtRest(x, y, psi);
+        if (keepEngineDamage && Dynamics != null) rest.EngineBlown = Dynamics.State.EngineBlown;
+        Dynamics = new Dyn(Parameters, rest);
         CreateLoop(paused);
         Shaper.Reset();
-        _wasBlown = false;
+        _wasBlown = Dynamics.State.EngineBlown;
         ApplyPose();
         EmitSignal(SignalName.VehicleReset);
     }
@@ -106,8 +121,19 @@ public partial class VehicleController : Node3D
     {
         Loop = new SimulationLoop(Dynamics, new SimulationClock(Parameters.Dt))
         {
-            BeforeStep = (d, u) => BeforeStep?.Invoke(d, u) ?? u,
-            AfterStep = (d, u) => AfterStep?.Invoke(d, u),
+            BeforeStep = (d, u) =>
+            {
+                u = ShapeInputs(d, u, Loop.Clock.FixedDt);
+                u = BeforeStep?.Invoke(d, u) ?? u;
+                LastInputs = u;
+                return u;
+            },
+            AfterStep = (d, u) =>
+            {
+                AfterStep?.Invoke(d, u);
+                // Autodrive reports the state of the first step at or past the requested time (frame-rate independent).
+                if (_autodriveSeconds > 0 && _autodriveReport == null && d.State.Time >= _autodriveSeconds - 1e-9) _autodriveReport = d.State;
+            },
             TrackContext = _trackContext,
             Recorder = _recorder,
         };
@@ -153,46 +179,52 @@ public partial class VehicleController : Node3D
             steer = Input.GetActionStrength(InputSetup.SteerLeft) - Input.GetActionStrength(InputSetup.SteerRight);
         }
 
+        // Raw targets are sampled once per frame; ramping and the steering assist run per physics step
+        // (ShapeInputs), so the input history seen by the model does not depend on the frame rate.
+        _rawTargets = (throttle, brake, steer);
+        var u = new VehicleInputs { AutoShift = AutoShift, Surface = LastInputs.Surface };
         if (!Paused)
         {
-            // Rate limits are expressed per second; frame time is clamped like the simulation clock.
-            Shaper.Update(throttle, brake, steer, Math.Min(delta, Loop.Clock.MaxFrameTime));
+            // Shift presses while paused are dropped, not queued for the resume.
+            u.ShiftUp = (!typing && Input.IsActionJustPressed(InputSetup.ShiftUp)) || _requestedShift > 0;
+            u.ShiftDown = (!typing && Input.IsActionJustPressed(InputSetup.ShiftDown)) || _requestedShift < 0;
+            _requestedShift = 0;
         }
 
-        double steerCmd = Shaper.Steer;
-        if (SpeedSensitiveSteering && Autopilot == null)
-        {
-            double ratio = Dynamics.State.V / SpeedSensitiveSteeringRefSpeed;
-            steerCmd /= 1 + ratio * ratio;
-        }
-
-        var u = VehicleInputs.FromNormalized(Shaper.Throttle, Shaper.Brake, steerCmd, Parameters, AutoShift);
-        u.ShiftUp = !typing && Input.IsActionJustPressed(InputSetup.ShiftUp);
-        u.ShiftDown = !typing && Input.IsActionJustPressed(InputSetup.ShiftDown);
-        u.Surface = LastInputs.Surface;
-        LastInputs = u;
-
-        Loop.Advance(delta, u);
+        long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+        LastStepsThisFrame = Loop.Advance(delta, u);
+        LastAdvanceMs = (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
         ApplyPose();
 
         if (Dynamics.State.EngineBlown && !_wasBlown) EmitSignal(SignalName.EngineBlown);
         _wasBlown = Dynamics.State.EngineBlown;
 
-        if (_autodriveSeconds > 0 && Dynamics.State.Time >= _autodriveSeconds)
+        if (_autodriveReport is { } s)
         {
-            var s = Dynamics.State;
             GD.Print(FormattableString.Invariant(
-                $"AUTODRIVE t={s.Time:F3}s v={s.V * 3.6:F2}km/h dist={s.Distance:F1}m gear={s.Gear} rpm={s.EngineRpm:F0} x={s.X:F2} y={s.Y:F2} psi={s.Psi:F4} steps={Loop.Clock.StepsTaken}"));
+                $"AUTODRIVE t={s.Time:F3}s v={s.V * 3.6:F2}km/h dist={s.Distance:F1}m gear={s.Gear} rpm={s.EngineRpm:F0} x={s.X:F2} y={s.Y:F2} psi={s.Psi:F4} steps={Math.Round(s.Time / Parameters.Dt)} exact: V={s.V:R} X={s.X:R}"));
             GetTree().Quit();
         }
     }
 
-    /// <summary>Records the surface actually used by the last physics step (set by the BeforeStep hook).</summary>
-    public void NoteSurface(Surface s)
+    /// <summary>
+    /// Per physics step: rate-limit the frame's raw targets over dt (simulated time) and apply the speed-sensitive
+    /// steering assist with the current speed, then convert to the model's input (delta = steer * MaxSteerAngle).
+    /// </summary>
+    private VehicleInputs ShapeInputs(Dyn d, VehicleInputs u, double dt)
     {
-        var u = LastInputs;
-        u.Surface = s;
-        LastInputs = u;
+        Shaper.Update(_rawTargets.Throttle, _rawTargets.Brake, _rawTargets.Steer, dt);
+        double steerCmd = Shaper.Steer;
+        if (SpeedSensitiveSteering && Autopilot == null)
+        {
+            double ratio = d.State.V / SpeedSensitiveSteeringRefSpeed;
+            steerCmd /= 1 + ratio * ratio;
+        }
+        var shaped = VehicleInputs.FromNormalized(Shaper.Throttle, Shaper.Brake, steerCmd, Parameters, u.AutoShift);
+        shaped.ShiftUp = u.ShiftUp;
+        shaped.ShiftDown = u.ShiftDown;
+        shaped.Surface = u.Surface;
+        return shaped;
     }
 
     private void ApplyPose()

@@ -8,7 +8,7 @@ config_version=5
 
 config/name="R56 Vehicle Dynamics Simulator"
 config/description="Mini Cooper R56 (N16) digital twin: model.m longitudinal dynamics in a 3D driving simulator."
-run/main_scene="res://scenes/Main.tscn"
+run/main_scene="res://scenes/MainMenu.tscn"
 config/features=PackedStringArray("4.7", "C#", "Forward Plus")
 
 [display]

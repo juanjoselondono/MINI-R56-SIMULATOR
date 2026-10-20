@@ -1,10 +1,11 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="PackedScene" path="res://scenes/Vehicle.tscn" id="1_vehicle"]
 [ext_resource type="Script" path="res://scripts/camera/ChaseCamera.cs" id="2_cam"]
 [ext_resource type="Script" path="res://scripts/ui/UiRoot.cs" id="3_ui"]
 [ext_resource type="Script" path="res://scripts/track/TrackManager.cs" id="4_track"]
 [ext_resource type="Script" path="res://scripts/simulation/SimulationManager.cs" id="5_sim"]
+[ext_resource type="Script" path="res://scripts/audio/EngineAudio.cs" id="6_audio"]
 
 [sub_resource type="ProceduralSkyMaterial" id="Sky_mat"]
 sky_top_color = Color(0.22, 0.42, 0.75, 1)
@@ -69,6 +70,9 @@ TargetPath = NodePath("../Vehicle")
 
 [node name="SimulationManager" type="Node" parent="."]
 script = ExtResource("5_sim")
+
+[node name="EngineAudio" type="AudioStreamPlayer" parent="."]
+script = ExtResource("6_audio")
 
 [node name="UI" type="CanvasLayer" parent="."]
 script = ExtResource("3_ui")

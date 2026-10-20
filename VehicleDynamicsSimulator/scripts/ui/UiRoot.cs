@@ -80,7 +80,7 @@ public partial class UiRoot : CanvasLayer
             "R / Back            restart: grid, at rest, laps cleared",
             "Backspace / B       recover to track centreline (lap invalid)",
             "P / Start           pause / resume the simulation clock",
-            "C / Y               chase / cockpit camera",
+            "C / Y               chase / bonnet camera",
             "H                   headlights",
             "F5 / X              start / stop telemetry recording",
             "Tab                 vehicle setup panel",

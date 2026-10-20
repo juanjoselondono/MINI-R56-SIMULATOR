@@ -34,6 +34,13 @@ public sealed class CollisionManager
     /// <summary>Impact severity of the last step (|u_n| at entry, m/s), 0 if none.</summary>
     public double LastSeverity { get; private set; }
     public int ImpulseCount { get; private set; }
+    /// <summary>Contact entries (step without contact followed by a step with contact).</summary>
+    public int ContactEpisodes { get; private set; }
+    /// <summary>Latch releases during a contact (the car moved away from the wall while still touching it).</summary>
+    public int Rearms { get; private set; }
+    /// <summary>Impulses applied in two consecutive physics steps (must stay 0).</summary>
+    public int ConsecutiveImpulses { get; private set; }
+    private bool _impulseLastStep;
 
     public event Action<ImpactEvent>? Impact;
 
@@ -59,15 +66,21 @@ public sealed class CollisionManager
         if (contact is not { } k)
         {
             InContact = false;
+            _impulseLastStep = false;
             _latch.Update(false, 0);
             return;
         }
+        if (!InContact) ContactEpisodes++;
         InContact = true;
 
         var p = dyn.Parameters;
         var input = new CollisionInput(cx, cy, s.Psi, dyn.Outputs.Beta, s.V, k.NormalX, k.NormalY, k.Penetration,
             p.CollisionRestitution, p.CollisionFrictionLoss, p.CollisionMaxYawKick);
+        bool wasLatched = _latch.Latched;
         bool impulse = _latch.Update(true, CollisionResponse.NormalSpeed(input));
+        if (wasLatched && !_latch.Latched) Rearms++;
+        if (impulse && _impulseLastStep) ConsecutiveImpulses++;
+        _impulseLastStep = impulse;
         var r = impulse ? CollisionResponse.Resolve(input) : SustainedContact.Resolve(input);
 
         // The response is computed for the geometric centre; carry it back to the CG with the new heading.

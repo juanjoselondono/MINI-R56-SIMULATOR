@@ -14,7 +14,7 @@ public partial class RaceHud : Control
     public void Init(SimulationManager sim)
     {
         _sim = sim;
-        SetAnchorsPreset(LayoutPreset.FullRect);
+        SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
     }
 
@@ -27,7 +27,7 @@ public partial class RaceHud : Control
         var s = _sim.Vehicle.Dynamics.State;
         var o = _sim.Vehicle.Dynamics.Outputs;
         var p = _sim.Vehicle.Parameters;
-        var vp = Size;
+        var vp = GetViewportRect().Size;
         string F(double v, string fmt) => v.ToString(fmt, CultureInfo.InvariantCulture);
 
         // Tachometer + speed, bottom right.
@@ -53,11 +53,11 @@ public partial class RaceHud : Control
             DrawLine(c, c + new Vector2(Mathf.Cos(na), Mathf.Sin(na)) * (r - 8), o.RevLimiter ? UiTheme.Bad : UiTheme.Accent, 4);
         }
         DrawCircle(c, 8, UiTheme.Accent);
-        DrawString(font, c + new Vector2(-70, 52), F(s.V * 3.6, "0"), HorizontalAlignment.Center, 140, 46, UiTheme.Text);
-        DrawString(font, c + new Vector2(-70, 74), "km/h", HorizontalAlignment.Center, 140, 14, UiTheme.Muted);
+        DrawString(font, c + new Vector2(-70, 66), F(s.V * 3.6, "0"), HorizontalAlignment.Center, 140, 46, UiTheme.Text);
+        DrawString(font, c + new Vector2(-70, 88), "km/h", HorizontalAlignment.Center, 140, 14, UiTheme.Muted);
         string gear = s.EngineBlown ? "X" : s.Gear.ToString();
-        DrawString(font, c + new Vector2(-30, -22), gear, HorizontalAlignment.Center, 60, 40, s.EngineBlown ? UiTheme.Bad : UiTheme.Accent);
-        DrawString(font, c + new Vector2(-70, 0), (_sim.Vehicle.AutoShift ? "AUTO · " : "") + F(s.EngineRpm, "0") + " rpm", HorizontalAlignment.Center, 140, 13, UiTheme.Muted);
+        DrawString(font, c + new Vector2(-30, -42), gear, HorizontalAlignment.Center, 60, 34, s.EngineBlown ? UiTheme.Bad : UiTheme.Accent);
+        DrawString(font, c + new Vector2(-70, 30), (_sim.Vehicle.AutoShift ? "AUTO · " : "") + F(s.EngineRpm, "0") + " rpm", HorizontalAlignment.Center, 140, 13, UiTheme.Muted);
 
         // Lap panel, top right.
         var lp = new Rect2(vp.X - 300, 16, 284, 128);
