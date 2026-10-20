@@ -91,8 +91,21 @@ counter-clockwise. Godot is Y-up with −Z forward. The one conversion is `Vehic
 - heading: `Rotation.Y = ψ − π/2`, so the car's −Z axis maps to (cos ψ, 0, −sin ψ).
 
 The track meshes, scenery, barrier collision body, spark positions and camera all go through the same functions.
-The vehicle mesh (`tools/asset_pipeline/stl_to_obj.py`) is exported facing −Z, with its origin on the ground below the
-CG. The CG sits `car.c` = 1.529 m ahead of the rear axle.
+The vehicle mesh (2011 Mini JCW R56 GP, converted by `tools/asset_pipeline/import_jcw_obj.py`) is exported facing
+−Z, scaled so its wheelbase equals model.m's 2.467 m, with its origin on the ground below the CG. The CG sits `car.c` = 1.529 m ahead of the rear axle.
+
+### Vehicle visuals
+
+`VehicleVisuals` only reads values derived from the state:
+- **Wheels:** spin = odometer / R_w. The front wheels turn by the model's clamped δ.
+- **Steering wheel:** turns by δ × 14 about its measured column axis. The ratio is a visual constant; model.m has no
+  steering system.
+- **Brake lights:** the tail-light lens glows when the brake input exceeds 0.05.
+- **Headlights:** the headlight texture glows when the headlights are on.
+- **Materials:** tuned per source material name (metallic clearcoat paint, translucent glass, rough tyres, metallic
+  rims).
+
+No body roll or pitch is drawn, because model.m has no suspension dynamics.
 
 ## 4. Track, surfaces and collisions
 
@@ -106,7 +119,7 @@ So what you see is what you hit.
 | Concern | Implementation | Notes |
 |---|---|---|
 | Surface (E2) | `BeforeStep` → `TrackGeometry.SurfaceAt(CG)` | One surface for the whole car, evaluated at the CG. model.m has a single μ, and per-wheel contact is not modelled. |
-| Barrier detection | `CollisionManager.AfterStep` → `BarrierContact.Check` on the 3.90 × 1.70 m body footprint (measured from the STL, centre 0.194 m behind the CG) | Analytic, deterministic, per physics step. No Godot physics is involved in the car's motion. |
+| Barrier detection | `CollisionManager.AfterStep` → `BarrierContact.Check` on the 3.76 × 1.68 m body footprint (measured from the JCW model's shell without mirrors, centre 0.261 m behind the CG) | Analytic, deterministic, per physics step. No Godot physics is involved in the car's motion. |
 | Response (E3) | First step of a contact: `CollisionResponse.Resolve` (restitution e, tangential loss k_t, yaw kick ≤ maxYawKick). While latched: `SustainedContact.Resolve`. Both applied via `ApplyCollision`. | One impulse per contact (`ContactLatch`); a new impulse only after separation. Speed can never increase. |
 | Effects | `SimulationManager.OnImpact` → sparks, camera shake, `EngineSynth.TriggerImpact`, telemetry event `impact:<severity>`, lap invalidated | Cosmetic only. |
 | Godot collision shapes | `StaticBody3D` with the barrier faces (layer 2) | Used only by the chase camera's ray query, which keeps the camera in front of walls. |
@@ -150,8 +163,8 @@ second thread would add synchronisation and an input-to-state latency of at leas
 Measured with `-- --perf`:
 - **Physics core:** 75 µs per step including the collision, surface, lap and telemetry hooks, which is about 0.25 ms
   per frame at 60 fps.
-- **Rendering:** 133 ms per frame on this machine's software Vulkan renderer (llvmpipe), so absolute fps here says
-  nothing about a GPU.
+- **Rendering:** with the 160k-triangle JCW model, 16.7 ms per frame (59.9 fps, vsync-limited) on the RTX 3050 laptop
+  GPU, Circuit, 1280×720. A run on the software renderer (llvmpipe) gave 133 ms per frame with the old STL car.
 
 ## 8. Godot project map
 
@@ -164,7 +177,7 @@ VehicleDynamicsSimulator/
 │   ├── vehicle/     VehicleController (core owner, inputs, interpolation), VehicleVisuals, CollisionManager, InputSetup
 │   ├── track/       TrackManager, TrackMeshBuilder, TrackScenery
 │   ├── race/        LapTimer
-│   ├── camera/      ChaseCamera (chase / bonnet, barrier ray, shake)
+│   ├── camera/      ChaseCamera (chase / bonnet / cockpit, barrier ray, shake)
 │   ├── dynamics/    VehicleModelAdapter (model ↔ Godot)
 │   ├── ui/          UiRoot, RaceHud, VehicleSetupPanel, ParameterCatalog, TelemetryPanel, TelemetryPlot,
 │   │                RunComparisonPanel, UiTheme, UiFocus
@@ -172,7 +185,7 @@ VehicleDynamicsSimulator/
 │   ├── effects/     ImpactEffects
 │   ├── menu/        MainMenu
 │   └── dev/         SelfTest, CentrelineDriver, ScreenshotRig, PerfProbe
-└── assets/  vehicles/mini_r56 (OBJ from Mini_body.stl), materials (procedural shaders)
+└── assets/  vehicles/mini_jcw (body, 4 wheels, steering wheel, textures, meta JSON), materials (procedural shaders)
 ```
 
 ## 9. Extending

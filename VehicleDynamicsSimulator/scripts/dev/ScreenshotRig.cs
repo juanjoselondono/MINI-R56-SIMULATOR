@@ -9,7 +9,7 @@ using Simulator.Simulation;
 namespace Simulator.Dev;
 
 /// <summary>
-/// Dev utility (needs a rendering run, not --headless): `-- --shots=DIR --shot-times=5,40,85 [--bonnet] [--demo]`
+/// Dev utility (needs a rendering run, not --headless): `-- --shots=DIR --shot-times=5,40,85 [--bonnet|--cockpit] [--demo]`
 /// saves a PNG of the viewport when the simulation clock passes each time, then quits.
 /// </summary>
 public partial class ScreenshotRig : Node
@@ -33,7 +33,8 @@ public partial class ScreenshotRig : Node
             _sim = sim,
         };
         sim.AddChild(rig);
-        if (args.Contains("--bonnet")) sim.Camera?.SetBonnet(true);
+        if (args.Contains("--bonnet")) sim.Camera?.SetView(ChaseCamera.Mode.Bonnet);
+        if (args.Contains("--cockpit")) sim.Camera?.SetView(ChaseCamera.Mode.Cockpit);
     }
 
     public override void _Process(double delta)

@@ -18,13 +18,13 @@ public readonly record struct ImpactEvent(double Time, double Severity, double P
 public sealed class CollisionManager
 {
     /// <summary>
-    /// Footprint of the body (without mirrors) measured from Mini_body.stl (assets/vehicles/mini_r56/mini_r56_meta.json):
-    /// z from −1.756 m (front bumper) to +2.144 m (rear bumper) relative to the CG, |x| ≤ 0.85 m.
-    /// The geometric centre is therefore 0.194 m behind the CG.
+    /// Footprint of the body shell without mirrors, measured from the JCW model (assets/vehicles/mini_jcw/mini_jcw_meta.json,
+    /// chassis_aabb): z from −1.622 m (front bumper) to +2.143 m (rear bumper) relative to the CG, |x| ≤ 0.841 m.
+    /// The geometric centre is therefore 0.261 m behind the CG.
     /// </summary>
-    public double HalfLength { get; set; } = 1.95;
-    public double HalfWidth { get; set; } = 0.85;
-    public double CentreBehindCg { get; set; } = 0.194;
+    public double HalfLength { get; set; } = 1.882;
+    public double HalfWidth { get; set; } = 0.841;
+    public double CentreBehindCg { get; set; } = 0.261;
 
     private readonly ContactLatch _latch = new();
 

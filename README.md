@@ -12,7 +12,9 @@ scenarios.
   - analytic barrier collisions, lap timing;
   - a live setup panel exposing the real model parameters;
   - engineering telemetry with CSV export, and run comparison;
-  - procedural engine audio locked to the model's rpm.
+  - procedural engine audio locked to the model's rpm;
+  - a textured 2011 Mini JCW (R56) GP model with interior, scaled to model.m's wheelbase, viewed through chase, bonnet
+    and cockpit cameras.
 - **Validation** (`validation/`, `tests/`). Golden data comes from the unmodified model.m; 105 unit tests and a
   21-check in-game self-test.
 

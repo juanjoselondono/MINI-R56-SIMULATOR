@@ -1,0 +1,144 @@
+# cleaned by tools/asset_pipeline/import_jcw_obj.py: no map_d/map_Ka; only the glass is translucent
+
+newmtl Bootok0051Mtl
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078
+Ns 0
+d 1
+map_Kd textures/Bootok0051_diff.png
+
+newmtl Bootok0061Mtl
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078
+Ns 0
+d 1
+map_Kd textures/Bootok0061_diff.png
+
+newmtl Bumpfrontok0071Mtl
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078
+Ns 0
+d 1
+map_Kd textures/Bumpfrontok0071_diff.png
+
+newmtl Bumprearok0011Mtl
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078
+Ns 0
+d 1
+map_Kd textures/Bumprearok0011_diff.png
+
+newmtl Bumprearok0041Mtl
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078
+Ns 0
+d 1
+map_Kd textures/Bumprearok0041_diff.png
+
+newmtl Bumprearok1Mtl
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078
+Ns 0
+d 1
+map_Kd textures/Bumprearok1_diff.png
+
+newmtl Chassis0031Mtl
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078
+Ns 0
+d 1
+map_Kd textures/Chassis0031_diff.png
+
+newmtl Doorrfok0011Mtl
+Kd 0.373615 0.368591 0.383775
+Ks 0.147981 0.145991 0.152005
+Ns 0
+d 1
+
+newmtl Doorrfok0021Mtl
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078
+Ns 0
+d 1
+map_Kd textures/Doorrfok0021_diff.png
+
+newmtl Doorrfok0031Mtl
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078
+Ns 0
+d 1
+map_Kd textures/Doorrfok0031_diff.png
+
+newmtl Doorrfok0041Mtl
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078
+Ns 0
+d 1
+map_Kd textures/Doorrfok0041_diff.png
+
+newmtl Doorrfok0051Mtl
+Kd 0.00258583 0.00258583 0.00258583
+Ks 0.00102419 0.00102419 0.00102419
+Ns 0
+d 0.25098
+
+newmtl Doorrfok0061Mtl
+Kd 0.00258583 0.00258583 0.00258583
+Ks 0.00102419 0.00102419 0.00102419
+Ns 0
+d 1
+
+newmtl Doorrfok0071Mtl
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078
+Ns 0
+d 1
+map_Kd textures/Doorrfok0071_diff.png
+
+newmtl Frontlight0041Mtl
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078
+Ns 0
+d 1
+map_Kd textures/Frontlight0041_diff.png
+
+newmtl Interior0031Mtl
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078
+Ns 0
+d 1
+map_Kd textures/Interior0031_diff.png
+
+newmtl Tahook1Mtl
+Kd 0.991393 0.991393 0.991393
+Ks 0.392669 0.392669 0.392669
+Ns 0
+d 1
+map_Kd textures/Interior0031_diff.png
+
+newmtl Tailight0031Mtl
+Kd 0.180144 0 0
+Ks 0.0713513 0 0
+Ns 0
+d 1
+
+newmtl Wheel0011Mtl
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078
+Ns 0
+d 1
+map_Kd textures/Wheel0011_diff.png
+
+newmtl Wheel0021Mtl
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078
+Ns 0
+d 1
+map_Kd textures/Wheel0021_diff.png
+
+newmtl Wheel1Mtl
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078
+Ns 0
+d 1
+map_Kd textures/Wheel1_diff.png

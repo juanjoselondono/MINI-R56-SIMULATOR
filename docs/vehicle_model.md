@@ -365,7 +365,7 @@ Check (Python): Godot's basis rotates $(0,0,-1)$ by angle $\vartheta$ about +Y t
 $\vartheta=\psi-\pi/2$ this is $(\cos\psi,0,-\sin\psi)$, the image of the model heading $(\cos\psi,\sin\psi)$ under the
 position map, for ψ = 0, 0.7, −2.1, π/2. Yaw rate $r$ (CCW seen from above) maps to angular velocity $+r$ about
 Godot +Y (also CCW seen from above). The Mini mesh needs its own
-fixed import rotation (STL: X width, Y height, Z length), applied once in the asset, not in the physics adapter.
+fixed import rotation, applied once in the asset pipeline (`tools/asset_pipeline/import_jcw_obj.py`), not in the physics adapter.
 
 ## 14. Discrepancies found between DESIGN_CONTRACT.md and model.m / the seed (to resolve)
 

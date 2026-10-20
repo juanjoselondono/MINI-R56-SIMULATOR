@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://dq4dn6gg7wc88"
+path="res://.godot/imported/steering_wheel.obj-2aa3467fe0ce16c793c94eaa8333f778.mesh"
+
+[deps]
+
+files=["res://.godot/imported/steering_wheel.obj-2aa3467fe0ce16c793c94eaa8333f778.mesh"]
+
+source_file="res://assets/vehicles/mini_jcw/steering_wheel.obj"
+dest_files=["res://.godot/imported/steering_wheel.obj-2aa3467fe0ce16c793c94eaa8333f778.mesh", "res://.godot/imported/steering_wheel.obj-2aa3467fe0ce16c793c94eaa8333f778.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

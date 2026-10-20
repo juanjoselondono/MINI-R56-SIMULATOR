@@ -1,0 +1,111 @@
+{
+  "source": "2011-mini-john-cooper-works-r56/source/Mini JCW GP/Mini JCW GP.obj",
+  "frame": "Godot: car faces -Z, left = -X, metres, origin on the ground below the CG (car.c ahead of the rear axle)",
+  "scale_to_metres": 0.22591575091575097,
+  "wheelbase_source_units": 10.919999999999998,
+  "wheelbase_m": 2.467,
+  "tyre_radius_m": 0.30319652776086775,
+  "tyre_width_m": 0.21486847069597081,
+  "hubs": {
+    "fl": [
+      -0.7165,
+      0.3032,
+      -0.938
+    ],
+    "fr": [
+      0.7165,
+      0.3032,
+      -0.938
+    ],
+    "rl": [
+      -0.7165,
+      0.3032,
+      1.529
+    ],
+    "rr": [
+      0.7165,
+      0.3032,
+      1.529
+    ]
+  },
+  "track_front_m": 1.4330061996336991,
+  "track_rear_m": 1.4330061996336991,
+  "body_aabb_min": [
+    -0.9393,
+    0.1014,
+    -1.6217
+  ],
+  "body_aabb_max": [
+    0.939,
+    1.7621,
+    2.1428
+  ],
+  "chassis_aabb_min": [
+    -0.841,
+    0.1014,
+    -1.6217
+  ],
+  "chassis_aabb_max": [
+    0.8407,
+    1.7621,
+    2.1428
+  ],
+  "steering_wheel": {
+    "centre": [
+      -0.3525,
+      0.8317,
+      0.0577
+    ],
+    "axis": [
+      -0.00052,
+      0.40524,
+      0.91421
+    ]
+  },
+  "tail_lights": {
+    "left": [
+      -0.652,
+      0.745,
+      1.878
+    ],
+    "right": [
+      0.652,
+      0.745,
+      1.878
+    ],
+    "rear_z": 1.946
+  },
+  "head_lights": {
+    "left": [
+      -0.611,
+      0.671,
+      -1.306
+    ],
+    "right": [
+      0.61,
+      0.671,
+      -1.306
+    ],
+    "front_z": -1.429
+  },
+  "seats_aabb": [
+    [
+      -0.601,
+      0.271,
+      0.059
+    ],
+    [
+      0.601,
+      1.21,
+      0.769
+    ]
+  ],
+  "triangles": {
+    "body": 135346,
+    "steering_wheel": 6200,
+    "wheel_fl": 3717,
+    "wheel_fr": 3717,
+    "wheel_rl": 3717,
+    "wheel_rr": 3717
+  }
+}

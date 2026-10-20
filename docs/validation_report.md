@@ -392,10 +392,11 @@ dependent, as with any real-time input device.
 | Run | Frame time | Physics per frame | Physics per step (incl. hooks) |
 |---|---|---|---|
 | Headless, Circuit, scripted driver, 3000 frames | 6.90 ms | 0.104 ms (1.38 steps) | 75 µs |
-| Rendered 1280×720 on llvmpipe (software Vulkan), 150 frames | 133 ms (7.5 fps) | 0.92 ms (26.7 steps) | 34 µs |
+| Rendered 1280×720 on llvmpipe (software Vulkan), 150 frames, old STL car | 133 ms (7.5 fps) | 0.92 ms (26.7 steps) | 34 µs |
+| Rendered 1280×720 on the RTX 3050 (Vulkan Forward+), 150 frames, JCW model (160k triangles) | 16.70 ms (59.9 fps, vsync-limited; max 18.2 ms) | 0.25 ms (3.34 steps) | 74 µs |
 
-In this environment Godot rendered on llvmpipe, not on the RTX 3050, so the rendered frame rate says nothing about
-GPU performance; `docs/run_instructions.md` §5 has the GPU-offload command. The physics kept pace with real time even
+The first rendered measurement used llvmpipe (software), not the GPU. A later session rendered on the RTX 3050 and
+reached the 60 Hz vsync limit with the detailed JCW model. The physics kept pace with real time even
 at 7.5 fps, because the fixed-step clock runs about 27 steps per frame.
 
 ### 11.5 Defects found and fixed while testing the game layer
@@ -407,14 +408,25 @@ at 7.5 fps, because the fixed-step clock runs about 27 steps per frame.
 | Input ramps applied per render frame (frame-rate dependent) | per-step shaping (§11.3) |
 | Spawn behind the line was inside the Circuit's last corner; zero-steer autodrive hit the wall | spawn at s = 0 with a standing-start lap |
 | HUD dial and lap panel drawn off-screen (control size 0) | draw against the viewport rectangle |
-| Cockpit camera inside the closed STL shell | bonnet camera |
+| Cockpit camera inside the closed STL shell | bonnet camera; later replaced by a real cockpit view once the JCW model (interior + glass) was integrated |
 | "Recover to track" repaired a destroyed engine; shift presses while paused were applied on resume | damage kept; paused shifts dropped |
 | `AudioStreamGeneratorPlayback` leaked at exit | released in `EngineAudio._ExitTree` |
 
-### 11.6 Still not validated
+### 11.6 Vehicle model replacement (JCW R56 GP)
+
+The self-test was re-run after the car model and collision footprint were replaced: **21/21 passed**, exit code 0.
+Oval lap 64.07 s and Circuit lap 118.23 s, both unchanged. Barrier test: 15 impulses / 15 contact entries, 0 on
+consecutive steps, CG margin 0.86 m. Unit tests: 94/94 + 11/11.
+
+The model's scale cross-checks against independent data:
+- tyre radius 0.3032 m vs model.m R_w = 0.3043 m;
+- shell width 1.68 m vs the R56's 1.683 m;
+- length 3.76 m vs the JCW GP's about 3.73 m.
+
+### 11.7 Still not validated
 
 - E1, E2 and E3 against any measured vehicle data. Their values are provisional and the tests only check internal
   consistency.
-- Absolute rendering performance on the target GPU (only llvmpipe was available here).
+- Rendering performance above 60 fps (vsync limited the GPU measurement) and at higher resolutions.
 - Audio by ear: only pitch, gating and the slip rule were checked numerically.
 - Godot editor workflows (opening the project in the editor UI). Every check here used the command-line engine.
