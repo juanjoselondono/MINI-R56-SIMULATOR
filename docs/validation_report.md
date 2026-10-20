@@ -12,7 +12,7 @@ Every number in this report comes from the runs listed in §9. Nothing here is e
 | Interactive (`VehicleDynamics.Core.Simulation`), MATLAB R1 conditions | \|Δv\| ≤ 0.05 km/h, \|Δd\| ≤ (0.05/3.6)·t, same step count to reach `L_recta` / 60 s cap | **PASS.** Max \|Δv\| 3.4e-3 to 6.9e-3 km/h; max \|Δd\| 0.011 to 0.052 m; time to reach identical in all 9 scenarios |
 | Timestep convergence (interactive) | Euler order ~1; RK4 better | Euler order 0.96 to 1.00. At dt = 0.005 s the Euler distance error after 10 s is 0.086 m (0.06 %) |
 
-`dotnet test`: `Passed! - Failed: 0, Passed: 87, Skipped: 0, Total: 87`. MATLAB `compare_results()` reports PASS for the reference
+`dotnet test`: `Passed! - Failed: 0, Passed: 87, Skipped: 0, Total: 87` on 2026-10-19; 90/90 after the three hook tests of §10 were added. MATLAB `compare_results()` reports PASS for the reference
 layer and the interactive layer in all 9 scenarios (18/18).
 
 ## 2. Method
@@ -305,3 +305,29 @@ dotnet test VehicleDynamics.sln
 (cd tests/VehicleDynamics.Tests/Data && cp matlab_scripts/colons_random.m . && \
  matlab -batch "colons_random" < /dev/null > colons.log 2>&1; rm -f colons_random.m colons.log)
 ```
+
+## 10. Re-run and closure (2026-10-20)
+
+The whole chain was re-run from a clean build on 2026-10-20, without reusing any earlier output:
+
+| Step | Command | Result |
+|---|---|---|
+| Reference integrity | `cd reference && sha256sum -c SHA256SUMS` | all 7 files OK; all 9 `golden/*/summary.json` carry `model_sha256 = b665b69c…0697b` |
+| C# build | `dotnet build VehicleDynamics.sln` | 0 errors, 0 warnings |
+| Unit + golden tests | `dotnet test VehicleDynamics.sln` | `Passed! - Failed: 0, Passed: 90, Total: 90` |
+| C# validation outputs | `dotnet run --project tools/ValidationRunner` | S01–S09: golden max rel err `0.000E+000`; interactive R1 max \|Δv\| 3.4e-3 … 6.9e-3 km/h |
+| MATLAB comparison | `compare_results` | reference layer PASS 9/9 (max abs 0, max rel 0); interactive layer PASS 9/9 |
+
+Baseline values reproduced by the C# reference layer (S01): F_x,max = 6302.146955955833 N, v_curva_final = 60.6 km/h,
+lap time = 63.92812124496099 s (MATLAB prints 63.93 s).
+
+The three tests added on 2026-10-20 (`LoopHookTests`) cover the game-facing hooks rather than the MATLAB model:
+`SimulationLoop.BeforeStep` (runs once per physics step; the surface it sets reaches F_x,max) and
+`VehicleDynamics.ApplyCollision` (writes pose/speed only for an applied impulse; rejects speed gains and non-finite values).
+
+**Not done.** The planned independent adversarial review of the port (a separate equation-by-equation and numerics review)
+did not run: the workflow that would have run it stopped after this report was written. The bit-exact agreement above is
+strong evidence for the reference layer. It says nothing about the extensions of §7, which rest on the unit tests only.
+
+Phase 9 status: **closed** for everything MATLAB can check. Validation of the 3D game layer (Phase 10) is reported in
+`docs/run_instructions.md` (self-test) once the game layer exists.
