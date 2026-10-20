@@ -5,13 +5,11 @@ namespace Simulator.Effects;
 /// <summary>Visual feedback for barrier impacts (sparks). Purely cosmetic; never touches the physics.</summary>
 public static class ImpactEffects
 {
-    private static ParticleProcessMaterial? _sparkProcess;
-    private static Mesh? _sparkMesh;
-
     /// <summary>One-shot spark burst at a contact point; amount and speed scale with severity |u_n| [m/s].</summary>
     public static void Sparks(Node parent, Vector3 position, Vector3 normal, double severity)
     {
-        _sparkProcess ??= new ParticleProcessMaterial
+        // Created per burst (cheap): static caches of Godot objects outlive the scene tree and leak at exit.
+        var process = new ParticleProcessMaterial
         {
             Spread = 55f,
             InitialVelocityMin = 3f,
@@ -21,7 +19,7 @@ public static class ImpactEffects
             ScaleMax = 1.0f,
             Color = new Color(1f, 0.75f, 0.3f),
         };
-        _sparkMesh ??= new QuadMesh
+        var mesh = new QuadMesh
         {
             Size = new Vector2(0.06f, 0.06f),
             Material = new StandardMaterial3D
@@ -36,7 +34,6 @@ public static class ImpactEffects
         };
 
         float k = Mathf.Clamp((float)severity / 10f, 0.15f, 1.5f);
-        var process = (ParticleProcessMaterial)_sparkProcess.Duplicate();
         process.Direction = (normal + Vector3.Up * 0.6f).Normalized();
         process.InitialVelocityMax = 9f * k + 2f;
         var p = new GpuParticles3D
@@ -46,7 +43,7 @@ public static class ImpactEffects
             OneShot = true,
             Explosiveness = 0.9f,
             ProcessMaterial = process,
-            DrawPass1 = _sparkMesh,
+            DrawPass1 = mesh,
             Position = position,
             Emitting = true,
         };

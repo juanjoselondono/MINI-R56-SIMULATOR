@@ -141,7 +141,7 @@ Mass/inertia params for UI: only parameters that exist in model.m (+ the clearly
 ## 4. Coordinates
 Model frame: planar X (east), Y (north), ψ CCW from +X, δ>0 = left turn, r>0 = CCW (ISO 8855 sign convention, z up).
 Godot (Y-up, −Z forward): `godot = (X, 0, −Y)`; node `Rotation.Y = ψ − π/2` (yields forward −Z basis ↦ (cosψ,0,−sinψ)).
-Put the conversion in ONE place (`VehicleModelAdapter` / `ModelToGodot`) with a unit-testable pure-math twin in core
+Put the conversion in ONE place (`VehicleModelAdapter`) with a unit-testable pure-math twin in core
 (`FrameConversion`) and tests for straight, ±steer, ±yaw.
 
 ## 5. Simulation clock & threading
@@ -172,3 +172,13 @@ equivalent xUnit test reading golden/) computes max abs err, RMSE, relative err,
 Additionally compare the INTERACTIVE layer (full throttle, auto-shift, from 1000 rpm in 1st) against MATLAB R1/S07
 histories; tolerance justified in validation_report.md (it differs by design: direct PCHIP vs 50-rpm table + linear interp).
 Steering/transient scenarios: NOT comparable (no lateral model in MATLAB) — say so; test E1 against analytic results instead.
+
+## 8. Amendments (2026-10-20, made while implementing the game layer)
+
+| § | Change | Why |
+|---|---|---|
+| 3 | Barrier offsets are a continuous function of s (`BarrierOffsetLeftAt/RightAt`), blended linearly over ±20 m (or half the shorter segment) around each joint. Contact, surface lookup and rendering all use it. | Per-segment offsets made the walls step where the runoff width changes. A car sliding along a wall would then be pushed 2–5 m sideways in one step. |
+| 2b / E3 | While a contact is latched (impulse already applied), `SustainedContact.Resolve` removes the approaching normal velocity: V' = √(V² − u_n²), no bounce, no heading change. `VehicleDynamics.ApplyCollision` is the only external writer of the state and rejects speed gains and non-finite values. | Without it, full throttle against a wall kept adding speed that the depenetration then discarded, so V grew while the car stood still. |
+| 5 | `SimulationLoop.BeforeStep`: per-step input adjustment from the current state. Used for the E2 surface lookup and for keyboard ramping plus the steering assist (`VehicleController.ShapeInputs`). | Input shaping per frame made the input history depend on the frame rate. Per step, constant inputs give bit-identical states at 10–1000 fps. |
+| 3 | Spawn on the start/finish line (s = 0), which is model.m's oval start point. The lap timer uses a standing start. | Spawning behind the line put the car inside the Circuit's final corner. |
+| 4 | Chase + **bonnet** camera instead of a cockpit camera. | `Mini_body.stl` is a closed shell without interior or transparent glazing. |

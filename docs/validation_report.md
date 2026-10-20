@@ -12,7 +12,7 @@ Every number in this report comes from the runs listed in §9. Nothing here is e
 | Interactive (`VehicleDynamics.Core.Simulation`), MATLAB R1 conditions | \|Δv\| ≤ 0.05 km/h, \|Δd\| ≤ (0.05/3.6)·t, same step count to reach `L_recta` / 60 s cap | **PASS.** Max \|Δv\| 3.4e-3 to 6.9e-3 km/h; max \|Δd\| 0.011 to 0.052 m; time to reach identical in all 9 scenarios |
 | Timestep convergence (interactive) | Euler order ~1; RK4 better | Euler order 0.96 to 1.00. At dt = 0.005 s the Euler distance error after 10 s is 0.086 m (0.06 %) |
 
-`dotnet test`: `Passed! - Failed: 0, Passed: 87, Skipped: 0, Total: 87` on 2026-10-19; 90/90 after the three hook tests of §10 were added. MATLAB `compare_results()` reports PASS for the reference
+`dotnet test`: `Passed! - Failed: 0, Passed: 87, Skipped: 0, Total: 87` on 2026-10-19. On 2026-10-20: 94/94 core tests and 11/11 game-logic tests (§10, §11). MATLAB `compare_results()` reports PASS for the reference
 layer and the interactive layer in all 9 scenarios (18/18).
 
 ## 2. Method
@@ -321,13 +321,100 @@ The whole chain was re-run from a clean build on 2026-10-20, without reusing any
 Baseline values reproduced by the C# reference layer (S01): F_x,max = 6302.146955955833 N, v_curva_final = 60.6 km/h,
 lap time = 63.92812124496099 s (MATLAB prints 63.93 s).
 
-The three tests added on 2026-10-20 (`LoopHookTests`) cover the game-facing hooks rather than the MATLAB model:
-`SimulationLoop.BeforeStep` (runs once per physics step; the surface it sets reaches F_x,max) and
-`VehicleDynamics.ApplyCollision` (writes pose/speed only for an applied impulse; rejects speed gains and non-finite values).
+`LoopHookTests` covers the game-facing hooks rather than the MATLAB model:
+- `SimulationLoop.BeforeStep` runs once per physics step, and the surface it sets reaches F_x,max.
+- `VehicleDynamics.ApplyCollision` writes pose, heading and speed from a collision result, and rejects speed gains and
+  non-finite values.
+- `SustainedContact` (§11.5) removes only the approaching normal velocity.
 
 **Not done.** The planned independent adversarial review of the port (a separate equation-by-equation and numerics review)
 did not run: the workflow that would have run it stopped after this report was written. The bit-exact agreement above is
 strong evidence for the reference layer. It says nothing about the extensions of §7, which rest on the unit tests only.
 
-Phase 9 status: **closed** for everything MATLAB can check. Validation of the 3D game layer (Phase 10) is reported in
-`docs/run_instructions.md` (self-test) once the game layer exists.
+Phase 9 status: **closed** for everything MATLAB can check. The game layer (Phase 10) is covered in §11.
+
+After the game-layer work below changed core files (s-continuous barrier offsets, sustained contact, two hooks), the
+chain was run again: ValidationRunner S01–S09 golden max rel err `0.000E+000`; `compare_results` 18/18 PASS;
+reference checksums 7/7 OK. The reference layer is untouched by those changes.
+
+## 11. Game layer tests (Phase 10, 2026-10-20)
+
+None of this is a comparison with MATLAB: model.m has no 3D world, steering, collisions or audio. These are
+consistency and behaviour checks of the game built on the validated core.
+
+### 11.1 Unit tests (`dotnet test VehicleDynamics.sln`)
+
+`VehicleDynamics.Tests`: **94/94 passed**. `GameLogic.Tests`: **11/11 passed**. Measured values printed by the tests:
+
+| Test | Result |
+|---|---|
+| Engine pitch locked to model rpm (f0 = rpm/30 Hz) | 1000 rpm: 33.37 Hz (+0.12 %); 3000 rpm: 99.98 Hz (−0.02 %); 6000 rpm: 200.02 Hz (+0.01 %); tolerance ±2 % |
+| Squeal only when slip indicator > 1 | slip = 1.0 adds nothing (output exactly 0 at rest; RMS 4.3e-4 at 10 m/s, which is wind only); slip = 1.6 gives RMS 4.9e-2 |
+| Synth cost / allocations | 102.5 µs per 256-frame chunk (real-time budget 5805 µs); 0 bytes allocated |
+| Angled barrier impact at 30 m/s, then 10 s of full throttle into the wall | 1 impulse; 31.0 → 25.1 m/s at impact; CG never closer than 1.66 m to the wall |
+| Pressing into a wall head-on at full throttle | speed stays below 0.019 m/s (sustained-contact constraint) |
+| Scripted centreline lap (pure pursuit, through the model inputs) | Oval 64.03 s, Circuit 118.13 s; valid; 0 impacts; max \|lateral\| 0.35 m / 0.52 m |
+| Lap timer | forward lap counted once, crossing time interpolated; backwards crossing and cutting the line count nothing |
+| Barrier offsets continuous in s (both tracks) | largest change 0.0033 m per 0.01 m; nominal value away from joints |
+
+The Oval lap time of the scripted driver (64.03 s) is close to model.m's lap estimate (63.93 s), but it is not a
+validation. The two use different strategies: the driver follows a curvature-based speed plan through E1, while
+model.m uses constant curve speed and its braking-distance rule.
+
+### 11.2 In-game self-test (`-- --selftest`, headless, `--fixed-fps 60`)
+
+The real scene is driven through the normal input path. **21/21 passed, exit code 0.**
+
+| Check (each on Oval and Circuit) | Oval | Circuit |
+|---|---|---|
+| Spawn at rest on the grid (model.m oval start point) | PASS | PASS |
+| Fixed physics step: steps × dt = simulated time | 124 steps / 0.620 s | 124 steps / 0.620 s |
+| Scripted lap counted, valid, no impacts | 64.07 s | 118.23 s |
+| Speedometer = physics state (telemetry sample vs `State.V`) | \|Δ\| < 1e-9 | \|Δ\| < 1e-9 |
+| CSV export: header = schema, metadata, config JSON, sample interval | 3209 rows, interval error 1.8e-14 s | 5917 rows, 1.8e-14 s |
+| Barrier response (steering into the wall for 12 s) | 15 impulses / 15 contact entries, 0 on consecutive steps, 16.5 → 12.2 m/s, CG ≥ 0.87 m from wall | 15 / 15, 0, 16.4 → 11.9 m/s, ≥ 0.88 m |
+| Pause stops the clock | PASS | PASS |
+| Parameter change reaches the equations (M = 1800 kg → F_x,max) | 7988.6 N = formula | 7988.6 N = formula |
+| Money shift (2nd → 1st at 68 km/h) destroys the engine | PASS | PASS |
+| Restart (grid, laps cleared, engine repaired) | PASS | PASS |
+| UI panels open + run comparison of the two recorded runs | PASS (n = 3209 time-aligned samples) | |
+
+### 11.3 Frame-rate independence
+
+`-- --track=Oval --autodrive=10` (constant full throttle, auto-shift) at `--fixed-fps` 10, 60, 144 and 1000 gave
+bit-identical states at the 2000th step: `V = 23.748988458642845 m/s`, `X = 129.9374357076798 m`. This holds because
+input ramping and the steering assist run per physics step (`VehicleController.ShapeInputs`). Inputs that change from
+frame to frame (a human, or the scripted driver, which samples the state once per frame) are themselves frame-rate
+dependent, as with any real-time input device.
+
+### 11.4 Performance (`-- --perf`)
+
+| Run | Frame time | Physics per frame | Physics per step (incl. hooks) |
+|---|---|---|---|
+| Headless, Circuit, scripted driver, 3000 frames | 6.90 ms | 0.104 ms (1.38 steps) | 75 µs |
+| Rendered 1280×720 on llvmpipe (software Vulkan), 150 frames | 133 ms (7.5 fps) | 0.92 ms (26.7 steps) | 34 µs |
+
+In this environment Godot rendered on llvmpipe, not on the RTX 3050, so the rendered frame rate says nothing about
+GPU performance; `docs/run_instructions.md` §5 has the GPU-offload command. The physics kept pace with real time even
+at 7.5 fps, because the fixed-step clock runs about 27 steps per frame.
+
+### 11.5 Defects found and fixed while testing the game layer
+
+| Defect | Fix |
+|---|---|
+| Barrier walls stepped at segment joints with different runoff widths. A car scraping the wall would be pushed 2–5 m sideways in one step. | `BarrierOffsetLeftAt/RightAt(s)`, blended ±20 m around joints, used by physics and rendering (`BarrierOffsets_AreContinuousAndNominalAwayFromJoints`, `BarrierContact_UsesBlendedOffsetAtJoints`) |
+| Pressing into a wall built up speed that the depenetration then discarded | `SustainedContact.Resolve` (`SustainedContact_RemovesApproachingNormalVelocityOnly`, `PressingIntoWall_CannotBuildSpeed`) |
+| Input ramps applied per render frame (frame-rate dependent) | per-step shaping (§11.3) |
+| Spawn behind the line was inside the Circuit's last corner; zero-steer autodrive hit the wall | spawn at s = 0 with a standing-start lap |
+| HUD dial and lap panel drawn off-screen (control size 0) | draw against the viewport rectangle |
+| Cockpit camera inside the closed STL shell | bonnet camera |
+| "Recover to track" repaired a destroyed engine; shift presses while paused were applied on resume | damage kept; paused shifts dropped |
+| `AudioStreamGeneratorPlayback` leaked at exit | released in `EngineAudio._ExitTree` |
+
+### 11.6 Still not validated
+
+- E1, E2 and E3 against any measured vehicle data. Their values are provisional and the tests only check internal
+  consistency.
+- Absolute rendering performance on the target GPU (only llvmpipe was available here).
+- Audio by ear: only pitch, gating and the slip rule were checked numerically.
+- Godot editor workflows (opening the project in the editor UI). Every check here used the command-line engine.

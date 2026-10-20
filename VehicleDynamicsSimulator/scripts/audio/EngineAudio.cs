@@ -37,6 +37,15 @@ public partial class EngineAudio : AudioStreamPlayer
         if (_sim != null) _sim.Impact += e => _synth.TriggerImpact(e.Severity);
     }
 
+    public override void _ExitTree()
+    {
+        // The playback is a RefCounted owned by the stream player; drop our reference so it is freed with it.
+        Stop();
+        _playback?.Dispose();
+        _playback = null;
+        Stream = null;
+    }
+
     public override void _Process(double delta)
     {
         if (_sim?.Vehicle?.Dynamics == null || _playback == null) return;

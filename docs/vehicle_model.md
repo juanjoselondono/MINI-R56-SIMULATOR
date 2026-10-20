@@ -284,33 +284,57 @@ left to right; `(0.01*(1+(v_mph/100)))*(M*g*cos θ)`; `T_engine*total_ratio*eta_
 
 ## 10. UI-exposable parameters
 
-Ranges are **proposed UI ranges** (not from model.m) unless a source is given.
+The setup panel exposes exactly the entries of `VehicleDynamicsSimulator/scripts/ui/ParameterCatalog.cs`. The table below
+is generated from that file. Every range lies inside `VehicleParameters.Validate()`. Cross-parameter rules (strictly
+decreasing gear ratios, c within 5–95 % of L, idle < fuel cut < money shift, clutch target between idle and fuel cut) are
+checked on the edited copy before Apply. Not exposed: `g` (a physical constant), `margin_safety` (used only by the
+reference/validation layer), the rpm positions of the torque nodes (only their torque values are editable), and the
+asphalt surface factors (μ itself covers asphalt).
 
-| Parameter | Unit | Default (model.m) | Proposed range | Effect |
-|---|---|---|---|---|
-| `car.M` | kg | 1420 | 1000–2000 (seed slider) | inertia, resistances, F_x,max, brakes |
-| `car.Cd` | – | 0.378 | 0.20–0.60 (seed slider) | drag ∝ v² |
-| `car.A` | m² | 1.99 | 1.5–2.5 | drag |
-| `car.mu` | – | 0.90 | 0.5–1.5 (seed slider) | F_x,max (non-linear: μ in num. and den.), brakes, cornering (E1) |
-| slope (`slope_value`, pct) | % | 0 | −15…+15 | grade force, W cos θ |
-| `car.final_drive` | – | 4.353 | 3.0–5.5 | wheel torque, speed per gear, F_x,max term |
-| `car.gear_ratios` | – | see §1 | per gear 0.5–4 | wheel torque/speed |
-| `car.eta_t` | – | 0.92 | 0.80–0.98 | wheel torque |
-| `car.mass_factors` | – | see §1 | 0–0.6 | effective inertia per gear |
-| `car.h` | m | 0.503 | 0.35–0.70 | longitudinal transfer in F_x,max |
-| `car.c` | m | 1.529 | 0.9–1.6 (< L) | front static load, F_x,max; E1 l_r |
-| `car.L` | m | 2.467 | 2.2–2.9 | F_x,max, E1 yaw rate |
-| `env.rho_air` | kg/m³ | 1.225 | 0.9–1.3 | drag (altitude) |
-| torque map scale | – | 1.0 | 0.5–1.5 | [EXT] gameplay multiplier on `torque_raw` |
-| `margin_safety` | – | 0.80 | 0.5–1.0 | reference/validation curve speed; E1 `gripUtilization` default 1.0 |
-| δ_max | rad | [EXT] 0.30 provisional | 0.1–0.6 | steering authority (E1) |
-| surface grip/rolling factors | – | [EXT E2] 1.0/0.95/0.6; 1/–/4 | 0.3–1.2; 1–6 | grip and rolling per surface |
-| collision e, k_t, maxYawKick | –, –, rad | [EXT E3] 0.25, 0.15, 0.6 | 0–0.8, 0–0.5, 0–1.2 | barrier response |
-| mechanical damage | bool | [seed] on | on/off | money-shift blow-up |
-| dt | s | 0.005 | 0.001–0.01 | integration step |
-
-Tyre size (width, aspect, rim) can be exposed through R_w; K_s/s parameters only affect F_x,max through
-$K_{\phi r}/K_\phi$ (advanced panel).
+| Group | Parameter | Unit | Range | Step | Source | Meaning |
+|---|---|---|---|---|---|---|
+| Vehicle body & environment | Mass M | kg | 600 – 3000 | 10 | model.m | Running mass (car.M). Enters F_x,max, rolling, grade and every inertia term. |
+| Vehicle body & environment | Drag coefficient Cd | – | 0.15 – 0.8 | 0.001 | model.m | Aerodynamic drag coefficient (car.Cd): F_drag = ½ρ A Cd V². |
+| Vehicle body & environment | Frontal area A | m² | 1.0 – 4.0 | 0.01 | model.m | Projected frontal area (car.A). |
+| Vehicle body & environment | Air density ρ | kg/m³ | 0.9 – 1.4 | 0.005 | model.m | env.rho_air (1.225 = sea level, 15 °C). |
+| Vehicle body & environment | Road grade | % | -20 – 20 | 0.5 | model.m | model.m slope (pct mode). One grade for the whole track, as in model.m: + = uphill. |
+| Tyres & traction limit (F_x,max, FWD) | Friction coefficient μ | – | 0.3 – 1.6 | 0.01 | model.m | Tyre–road friction (car.mu). Scales F_x,max, braking force and (E1) cornering grip. |
+| Tyres & traction limit (F_x,max, FWD) | Tyre width | m | 0.145 – 0.255 | 0.005 | model.m | 175/65 R15 → 0.175. With aspect ratio and rim gives R_w. |
+| Tyres & traction limit (F_x,max, FWD) | Aspect ratio | – | 0.3 – 0.8 | 0.05 | model.m | Sidewall height / width. |
+| Tyres & traction limit (F_x,max, FWD) | Rim diameter | in | 13 – 20 | 1 | model.m | Wheel rim diameter. |
+| Tyres & traction limit (F_x,max, FWD) | Wheelbase L | m | 2.0 – 3.2 | 0.001 | model.m | car.L. Also the E1 kinematic steering geometry. |
+| Tyres & traction limit (F_x,max, FWD) | CG to rear axle c | m | 0.5 – 2.5 | 0.001 | model.m | car.c (must stay within 5–95 % of L). Front-axle load share = c/L. |
+| Tyres & traction limit (F_x,max, FWD) | CG height h | m | 0.3 – 0.8 | 0.001 | model.m | car.h. Longitudinal load transfer term (h/L)μ of F_x,max. |
+| Tyres & traction limit (F_x,max, FWD) | Front track t_f | m | 1.2 – 1.8 | 0.001 | model.m | car.t_f. Enters the torque-induced lateral load-transfer term of F_x,max. |
+| Tyres & traction limit (F_x,max, FWD) | Rear track t_r | m | 1.2 – 1.8 | 0.001 | model.m | car.t_r (defined in model.m; not used by its equations). |
+| Tyres & traction limit (F_x,max, FWD) | Front spring K_s,f | N/m | 10000 – 100000 | 100 | model.m | car.K_s_f → roll stiffness K_φ,f = ½ K s². |
+| Tyres & traction limit (F_x,max, FWD) | Rear spring K_s,r | N/m | 10000 – 100000 | 100 | model.m | car.K_s_r → K_φ,r. F_x,max uses K_φ,r / K_φ. |
+| Tyres & traction limit (F_x,max, FWD) | Front spring spacing s_f | m | 0.8 – 1.3 | 0.001 | model.m | car.s_f. |
+| Tyres & traction limit (F_x,max, FWD) | Rear spring spacing s_r | m | 0.8 – 1.3 | 0.001 | model.m | car.s_r. |
+| Drivetrain | Final drive i_fd | – | 2.5 – 6.0 | 0.001 | model.m | car.final_drive. |
+| Drivetrain | Transmission efficiency η_t | – | 0.6 – 1.0 | 0.005 | model.m | car.eta_t. |
+| Drivetrain | Gear 1…6 ratio | – | 0.4 – 5.0 | 0.001 | model.m | car.gear_ratios. Must decrease strictly from 1st to 6th. |
+| Drivetrain | Mass factor gear 1…6 | – | 0.0 – 1.0 | 0.01 | model.m | car.mass_factors: rotational inertia, M_eq = M(1 + factor). |
+| Engine full-load torque (model.m nodes, PCHIP) | Torque @ each torque_raw node (14) | N·m | 0 – 300 | 1 | model.m | torque_raw node; the curve between nodes is PCHIP-interpolated as in model.m. |
+| Braking | Braking μ factor | – | 0.3 – 1.2 | 0.01 | model.m | model.m §11: F_brake = factor · μ · M g cosθ (0.90). |
+| Braking | Braking mass factor | – | 0 – 0.2 | 0.005 | model.m | model.m §11: M_eq,brake = M(1 + factor) (0.05). |
+| Engine rules from the JS seed game | Idle speed | rpm | 600 – 1500 | 10 | JS seed | Engine speed floor; torque below the first node uses the 1000-rpm value. |
+| Engine rules from the JS seed game | Fuel cut | rpm | 5000 – 7000 | 10 | JS seed | Torque = 0 at or above (rev limiter). |
+| Engine rules from the JS seed game | Clutch launch target | rpm | 2000 – 5000 | 10 | JS seed | 1st-gear launch: engine held at idle + throttle·(target − idle) until the wheels catch up. |
+| Engine rules from the JS seed game | Engine braking torque | N·m | 0 – 80 | 1 | JS seed | Coasting drag torque at the crank (seed: 30). |
+| Engine rules from the JS seed game | Money-shift limit | rpm | 6600 – 9000 | 10 | JS seed | Wheel-driven engine speed that destroys the engine (seed: 7200). |
+| Engine rules from the JS seed game | Mechanical damage |  | on / off |  | JS seed | Over-revving above the money-shift limit destroys the engine. |
+| Engine rules from the JS seed game | Clutch launch |  | on / off |  | JS seed | Use the seed's clutch-slip launch rule in 1st gear. |
+| Steering & cornering (extension E1) | Max steer angle δ_max | rad | 0.05 – 0.6 | 0.005 | Ext. E1 | Road-wheel angle at full input. Not in model.m; the seed used 0.06. |
+| Steering & cornering (extension E1) | Grip utilisation | – | 0.5 – 1.3 | 0.01 | Ext. E1 | Friction-circle radius = factor · F_x,max (model.m §10 uses 0.8 as a planning margin). |
+| Surfaces (extension E2) | Curb grip factor | – | 0.3 – 1.2 | 0.01 | Ext. E2 | μ multiplier on the curb band. |
+| Surfaces (extension E2) | Grass grip factor | – | 0.1 – 1.0 | 0.01 | Ext. E2 | μ multiplier on grass. |
+| Surfaces (extension E2) | Curb rolling factor | – | 0.5 – 5 | 0.1 | Ext. E2 | Rolling-coefficient multiplier on the curb band. |
+| Surfaces (extension E2) | Grass rolling factor | – | 1 – 15 | 0.1 | Ext. E2 | Rolling-coefficient multiplier on grass. |
+| Barrier impacts (extension E3) | Restitution e | – | 0 – 0.8 | 0.01 | Ext. E3 | Normal velocity after impact = −e · before. |
+| Barrier impacts (extension E3) | Tangential loss k_t | – | 0 – 0.6 | 0.01 | Ext. E3 | Scrape loss of the tangential velocity, proportional to impact severity. |
+| Barrier impacts (extension E3) | Max yaw kick | rad | 0 – 1.2 | 0.01 | Ext. E3 | Largest heading change one impact may cause. |
+| Numerics | Physics time step dt | s | 0.001 – 0.02 | 0.0005 | model.m | model.m dt = 0.005 s. Semi-implicit Euler as in model.m; see the convergence study in docs/validation_report.md. |
 
 ## 11. Effects not in model.m (unsupported unless an extension says otherwise)
 Lateral dynamics, yaw inertia, sideslip build-up, tyre force model (slip ratio/angle, cornering stiffness, combined slip),

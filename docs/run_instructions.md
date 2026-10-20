@@ -34,14 +34,17 @@ export GODOT=~/Applications/godot/Godot_v4.7.2-stable_mono_linux_x86_64/Godot_v4
 
 Put both lines in `~/.bashrc` if you launch the editor from a desktop shortcut.
 
-## 2. Build and test the physics core (no Godot, no MATLAB)
+## 2. Build and test (no Godot, no MATLAB)
 
 ```bash
-dotnet build VehicleDynamics.sln          # core library, tests, validation runner
-dotnet test VehicleDynamics.sln           # unit tests + golden-data checks against MATLAB output
+dotnet build VehicleDynamics.sln          # core library, both test projects, validation runner
+dotnet test VehicleDynamics.sln           # 94 core tests (incl. golden MATLAB data) + 11 game-logic tests
 ```
 
-The golden-data tests read `validation/golden/**`, which is committed, so they need no MATLAB.
+- `tests/VehicleDynamics.Tests`: the physics core. The golden-data tests read `validation/golden/**`, which is
+  committed, so they need no MATLAB.
+- `tests/GameLogic.Tests`: compiles the Godot-free game scripts (lap timer, collision manager, engine synth, scripted
+  driver) without Godot.
 
 ## 3. Validation against MATLAB
 
@@ -76,21 +79,97 @@ $GODOT --headless --import --path .
 
 ```bash
 cd VehicleDynamicsSimulator
-$GODOT --path .            # run the game
-$GODOT -e --path .         # open the editor (then F5 to run)
+$GODOT --path .            # run the game (main menu)
+$GODOT -e --path .         # open the editor, then F5 to run
 ```
 
-In the editor, the C# project builds automatically on run (Build button, top right).
+In the editor, the C# project builds automatically on run (Build button, top right). The main menu lets you choose:
+- **Track:** *Circuit* (2596 m: hairpin, sweepers, chicane) or *Oval* (model.m's 2 × 400 m + R80 oval, 1302.7 m).
+- **Vehicle configuration:** a saved configuration, or the model.m defaults.
 
-### Command-line test modes
+The car starts at rest on the start/finish line. The lap clock starts when the car first moves.
+
+### Controls
+
+| Key | Gamepad | Action |
+|---|---|---|
+| W / ↑ | RT | throttle |
+| S / ↓ | LT | brake |
+| A D / ← → | left stick | steer. A speed-sensitive input assist reduces the command at speed; the model still clamps δ to δ_max. |
+| E / Q | RB / LB | shift up / down (manual) |
+| T | – | toggle auto-shift (model.m gear rule: lowest gear whose 6500-rpm speed ≥ V) |
+| R | Back | restart: grid, at rest, laps cleared, engine repaired |
+| Backspace | B | recover to the nearest centreline point at rest. The lap becomes invalid and engine damage is kept. There is no reverse gear in the model. |
+| P | Start | pause / resume the simulation clock (shift presses while paused are ignored) |
+| C | Y | chase / bonnet camera |
+| H | – | headlights |
+| F5 | X | start / stop telemetry recording |
+| Tab | – | vehicle setup panel |
+| F2 | – | telemetry dashboard |
+| F3 | – | run comparison |
+| F1 | – | controls help |
+| Esc | – | back to the main menu (unexported recordings of the session are discarded) |
+
+While a text or number field has focus, driving keys and shortcuts are ignored. Press Enter to leave the field.
+
+### Panels
+
+- **Vehicle setup (Tab).** Every exposed parameter has a slider, a number field, its unit, range, default, a reset
+  button and a source tag:
+  - *model.m*: from the original MATLAB model;
+  - *JS seed*: a rule from the seed game;
+  - *Ext. E1/E2/E3*: an extension, provisional value.
+
+  Edits go to a working copy that is validated live; **Apply Setup** is disabled while it is invalid. Below the
+  buttons the panel shows derived values (R_w, K_φ, F_x,max, gear top speeds).
+
+  The buttons are Apply Setup, Reset Parameters, Revert Edits, Reset Vehicle (recover to track), Pause/Resume and
+  Restart Simulation. Save/Load Configuration reads and writes `user://configs/*.json`. Saving stores the *applied*
+  parameters, and loading fills the editor; press Apply to use what you loaded.
+- **Telemetry (F2).**
+  - Live values of every available quantity, with units. Extension-derived values are tagged [E1]/[E2]/[E3], and
+    quantities the model does not provide are listed as unavailable.
+  - Plots against time or distance: speed, rpm, accelerations, inputs, grip usage/slip, and a g-g diagram.
+  - Buttons: Record/Stop (F5), Discard Recording and Export CSV.
+- **Run comparison (F3).** Select two or more recorded runs to overlay speed against distance or time, measured from
+  each run's start. It also shows max |Δ| and RMSE of speed, rpm and a_x against the first selected run, and lists
+  the parameters that differ.
+
+### Output files
+
+| What | Linux path |
+|---|---|
+| Telemetry CSV + parameter JSON | `~/.local/share/godot/app_userdata/R56 Vehicle Dynamics Simulator/runs/` |
+| Saved configurations | `~/.local/share/godot/app_userdata/R56 Vehicle Dynamics Simulator/configs/` |
+
+The CSV columns are those of `docs/DESIGN_CONTRACT.md` §6. The `# key=value` header holds the track, start time,
+sample interval and every parameter. Events (shifts, impacts, laps, restarts, recoveries, parameter changes, engine
+failure) are in the `event` column.
+
+### Command-line test and dev modes
+
+These go after `--`. They skip the main menu.
 
 ```bash
-# Full throttle with auto-shift for N simulated seconds; prints the physical state and quits.
-$GODOT --headless --fixed-fps 60 --path . -- --autodrive=16.89
-```
+# In-game self-test on both tracks (21 checks), deterministic; exit code 0 = all pass
+$GODOT --headless --fixed-fps 60 --path . -- --selftest
 
-`--fixed-fps 60` makes the run deterministic. The number of physics steps printed equals `N / dt` regardless of the
-frame rate, which is how the fixed-step clock is checked.
+# Full throttle with auto-shift for N simulated seconds; prints the physical state and quits.
+# The printed state is bit-identical for any --fixed-fps (frame-rate independence check).
+$GODOT --headless --fixed-fps 60 --path . -- --track=Oval --autodrive=16.89
+
+# Scripted centreline driver (attract mode); combine with the options below
+$GODOT --path . -- --track=Circuit --demo
+
+# Screenshots at given simulated times, then quit (rendering run, not headless); --bonnet for the bonnet camera
+$GODOT --path . --resolution 1600x900 -- --track=Circuit --demo --shots=/tmp/shots --shot-times=14,52
+
+# Average frame time and physics cost over N frames
+$GODOT --path . -- --track=Circuit --demo --perf=300
+
+# Open panels at start (screenshots): setup, telemetry, compare, help
+$GODOT --path . -- --track=Oval --show-panels=setup,telemetry
+```
 
 ## 5. Troubleshooting
 
