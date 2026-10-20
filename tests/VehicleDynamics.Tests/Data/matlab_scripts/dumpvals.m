@@ -1,0 +1,22 @@
+runmodel;
+fid=fopen('ml_values.txt','w');
+fprintf(fid,'Fxmax %.17g\n',car.F_x_max);
+fprintf(fid,'vcf %.17g\n',v_curva_final_kmh);
+fprintf(fid,'vca %.17g\n',v_curva_adherencia_kmh);
+fprintf(fid,'gear %d\n',optimal_gear_curva);
+fprintf(fid,'vmaxg %.17g\n',v_max_gear_motriz_kmh);
+fprintf(fid,'lap %.17g\n',t_vuelta_completa);
+fprintf(fid,'dfr1 %.17g\ntfr1 %.17g\ntacc1 %.17g\nvmax1 %.17g\nn1 %d\n',d_frenado_r1,t_frenado_r1,t_acc_r1,v_max_recta1,length(history_t_r1));
+fprintf(fid,'dfr2 %.17g\ntfr2 %.17g\ntacc2 %.17g\nvmax2 %.17g\nn2 %d\n',d_frenado_r2,t_frenado_r2,t_acc_r2,v_max_recta2,length(history_t_r2));
+fprintf(fid,'Rw %.17g\n',car.R_w);
+fprintf(fid,'Tengine'); fprintf(fid,' %.17g',car.T_engine); fprintf(fid,'\n');
+xq=[1000 1001 1234.5 1499.9 2750 4100 4250 4333.3 6000.5 6450 6499.99 6500];
+fprintf(fid,'pchipx'); fprintf(fid,' %.17g',xq); fprintf(fid,'\n');
+fprintf(fid,'pchipy'); fprintf(fid,' %.17g',interp1(rpm_raw,torque_raw,xq,'pchip')); fprintf(fid,'\n');
+fprintf(fid,'pchipext %.17g %.17g\n',interp1(rpm_raw,torque_raw,900,'pchip'),interp1(rpm_raw,torque_raw,6600,'pchip'));
+c={[33.4 0.05 16.8],[1 0.1 1.3],[0 0.1 0.3],[3.3 0.05 3.0],[10 0.05 9.95],[16.83333333333333 0.05 16.8]};
+for i=1:numel(c), a=c{i}; v=a(1):-a(2):a(3); fprintf(fid,'colon %.17g %.17g %.17g %d %.17g\n',a(1),a(2),a(3),numel(v),v(end)); end
+v=1:0.1:220; fprintf(fid,'vsearch %d %.17g %.17g\n',numel(v),v(end),v(1235));
+v=0.1:1:220; fprintf(fid,'vkmh %d %.17g\n',numel(v),v(end));
+fprintf(fid,'vbrk1 %d %.17g %.17g\n', numel(v_end_r1_ms:-0.05:v_target_curva_ms), v_end_r1_ms, v_target_curva_ms);
+fclose(fid);

@@ -1,0 +1,10 @@
+{
+  "reference": { "rel_tol": 1e-9, "abs_tol": 1e-9 },
+  "interactive": {
+    "_note": "Interactive layer (clutch launch rule off) vs MATLAB R1. Justified in docs/validation_report.md section 5: the only modelling difference on these runs is direct PCHIP torque vs the 50-rpm table + linear interpolation; its acceleration gap integrated open-loop along the MATLAB trajectories is <= 0.022 km/h (S07), so 0.05 km/h is ~2x that bound. Distance tolerance follows as v_tol/3.6 * t (used by the xUnit test). Time to reach L_recta: one step (dt = 0.005 s).",
+    "v_kmh_abs_tol": 0.05,
+    "v_kmh_rel_tol": 0,
+    "t_reach_abs_tol_s": 0.005
+  },
+  "plots": true
+}

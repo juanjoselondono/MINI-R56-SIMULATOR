@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "notes": "Overrides use model.m variable names; each key must match exactly one assignment line in model.m (e.g. 'car.M', 'slope_value'). Values are numbers. Empty overrides = baseline.",
+  "scenarios": [
+    { "id": "S01", "name": "baseline", "description": "Unmodified model.m", "overrides": {}, "compare_interactive": true },
+    { "id": "S02", "name": "slope_10pct", "description": "Uphill slope 10 % (value found in model.asv)", "overrides": { "slope_value": 10 }, "compare_interactive": true },
+    { "id": "S03", "name": "slope_minus5pct", "description": "Downhill slope -5 %", "overrides": { "slope_value": -5 }, "compare_interactive": true },
+    { "id": "S04", "name": "mass_1800", "description": "Mass 1800 kg", "overrides": { "car.M": 1800 }, "compare_interactive": true },
+    { "id": "S05", "name": "mu_0p7", "description": "Friction coefficient 0.7", "overrides": { "car.mu": 0.7 }, "compare_interactive": true },
+    { "id": "S06", "name": "cd_0p30", "description": "Drag coefficient 0.30", "overrides": { "car.Cd": 0.30 }, "compare_interactive": true },
+    { "id": "S07", "name": "long_straight_3000", "description": "Long straight L_recta = 3000 m (long-run error growth, t < 60 s cap)", "overrides": { "L_recta": 3000 }, "compare_interactive": true },
+    { "id": "S08", "name": "r_curva_40", "description": "Curve radius 40 m", "overrides": { "R_curva": 40 }, "compare_interactive": true },
+    { "id": "S09", "name": "mu_1p2", "description": "Friction coefficient 1.2 (is traction still limiting in 1st? reported, not assumed)", "overrides": { "car.mu": 1.2 }, "compare_interactive": true }
+  ]
+}
