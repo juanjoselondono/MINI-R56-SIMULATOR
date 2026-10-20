@@ -82,7 +82,7 @@ public partial class SelfTest : Node
         GD.Print("\n================ SELF-TEST SUMMARY ================");
         foreach (var r in _results) GD.Print($"{(r.Pass ? "PASS" : "FAIL")}  {r.Track,-8} {r.Name,-28} {r.Detail}");
         GD.Print($"==== {_results.Count - failed}/{_results.Count} passed ====");
-        GetTree().Quit(failed == 0 ? 0 : 1);
+        AppQuit.Quit(this, failed == 0 ? 0 : 1);
     }
 
     private async Task TrackSuite()

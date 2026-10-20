@@ -46,6 +46,6 @@ public partial class ScreenshotRig : Node
         img.SavePng(path);
         GD.Print($"screenshot {path}");
         _next++;
-        if (_next >= _times.Length) GetTree().Quit();
+        if (_next >= _times.Length) AppQuit.Quit(this);
     }
 }

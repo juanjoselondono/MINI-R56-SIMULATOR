@@ -37,9 +37,15 @@ public partial class EngineAudio : AudioStreamPlayer
         if (_sim != null) _sim.Impact += e => _synth.TriggerImpact(e.Severity);
     }
 
-    public override void _ExitTree()
+    public override void _ExitTree() => Shutdown();
+
+    /// <summary>
+    /// Stops the stream and drops our managed reference to the generator playback (a RefCounted the audio server also
+    /// holds), so nothing keeps it alive at exit. Safe to call more than once.
+    /// </summary>
+    public void Shutdown()
     {
-        // The playback is a RefCounted owned by the stream player; drop our reference so it is freed with it.
+        if (_playback == null && Stream == null) return;
         Stop();
         _playback?.Dispose();
         _playback = null;

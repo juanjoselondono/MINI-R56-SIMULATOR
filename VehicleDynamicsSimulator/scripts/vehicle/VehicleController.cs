@@ -203,7 +203,9 @@ public partial class VehicleController : Node3D
         {
             GD.Print(FormattableString.Invariant(
                 $"AUTODRIVE t={s.Time:F3}s v={s.V * 3.6:F2}km/h dist={s.Distance:F1}m gear={s.Gear} rpm={s.EngineRpm:F0} x={s.X:F2} y={s.Y:F2} psi={s.Psi:F4} steps={Math.Round(s.Time / Parameters.Dt)} exact: V={s.V:R} X={s.X:R}"));
-            GetTree().Quit();
+            _autodriveSeconds = -1;
+            _autodriveReport = null;
+            Simulation.AppQuit.Quit(this);
         }
     }
 

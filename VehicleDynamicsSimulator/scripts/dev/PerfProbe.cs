@@ -34,6 +34,7 @@ public partial class PerfProbe : Node
         if (n < _target) return;
         GD.Print(string.Create(System.Globalization.CultureInfo.InvariantCulture,
             $"PERF frames={n} avg_frame={1000 * _sumFrame / n:F2} ms ({n / _sumFrame:F1} fps) max_frame={1000 * _maxFrame:F1} ms physics_per_frame={_sumPhys / n:F4} ms for {(double)_steps / n:F2} steps ({_sumPhys / System.Math.Max(1, _steps) * 1000:F1} µs/step) renderer={RenderingServer.GetVideoAdapterName()}"));
-        GetTree().Quit();
+        _target = int.MaxValue;
+        AppQuit.Quit(this);
     }
 }
