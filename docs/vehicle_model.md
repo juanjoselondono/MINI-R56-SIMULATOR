@@ -325,7 +325,7 @@ but unused), aerodynamic lift and wind, banking, kerbs and off-road surfaces, co
 |---|---|---|
 | E1 | Kinematic single-track: $\beta=\arctan(\tfrac{l_r}{L}\tan\delta)$, $r=V\cos\beta\tan\delta/L$, $F_y=MVr$, grip radius $F_{grip}=$ gripUtilization·$F_{x,max}(\mu_{surf})$; if $F_y>F_{grip}$: $r=F_{grip}/(MV)$, SlipIndicator = demand/available; longitudinal limited to $\sqrt{F_{grip}^2-F_y^2}$; $\dot\psi=r$, $\dot X=V\cos(\psi+\beta)$, $\dot Y=V\sin(\psi+\beta)$, $a_y=Vr$. Cannot spin (no yaw inertia). | DESIGN_CONTRACT §2b; friction circle from model.m §10 |
 | E2 | Surface factors on μ and $f_r$ (asphalt 1.0/1, curb 0.95, grass 0.6/4) | DESIGN_CONTRACT §2b, provisional gameplay values |
-| E3 | Barrier impulse: $u_n'=-e\,u_n$, $u_t'=(1-k_t|u_n|/\max(V,\varepsilon))u_t$, heading re-aligned ≤ maxYawKick, push-out, severity $|u_n|$, contact latching | DESIGN_CONTRACT §2b |
+| E3 | Barrier impulse: $u_n'=-e\,u_n$, $u_t'=(1-k_t|u_n|/\max(V,\varepsilon))u_t$, heading re-aligned ≤ maxYawKick, push-out, severity $|u_n|$, contact latching; while latched, a sustained-contact constraint removes the approaching normal velocity ($V'=\sqrt{V^2-u_n^2}$, no bounce, no heading change) so pressing into a wall cannot build speed | DESIGN_CONTRACT §2b |
 | S1 | Clutch-slip launch: gear 1, wheel rpm < 3500, throttle > 0.1 → rpm = max(wheel, 1000 + throttle·2500) | monaco.html l. 209–215 |
 | S2 | Torque clamp rpm < 1000 → T(1000) | monaco.html `getTorque` |
 | S3 | Fuel cut rpm ≥ 6500 → T = 0; limiter flag for HUD/audio | monaco.html `getTorque` + l. 218–223 (rpm remap dropped) |

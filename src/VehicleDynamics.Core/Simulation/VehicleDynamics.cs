@@ -150,9 +150,9 @@ public sealed class VehicleDynamics
     }
 
     /// <summary>
-    /// Applies an explicit collision response (extension E3) computed by
-    /// <see cref="Collision.CollisionResponse.Resolve"/>: the only sanctioned external write to the state.
-    /// Position is always corrected (depenetration); speed and heading only when an impulse was applied.
+    /// Applies an explicit collision response (extension E3) computed by <see cref="Collision.CollisionResponse.Resolve"/>
+    /// or <see cref="Collision.SustainedContact.Resolve"/>: the only sanctioned external write to the state. Position
+    /// (depenetration), heading and speed are taken from the result; a response may never increase the speed.
     /// </summary>
     public void ApplyCollision(in Collision.CollisionResult r)
     {
@@ -163,11 +163,8 @@ public sealed class VehicleDynamics
         var s = State;
         s.X = r.X;
         s.Y = r.Y;
-        if (r.ImpulseApplied)
-        {
-            s.Psi = r.Psi;
-            s.V = Math.Max(0, r.V);
-        }
+        s.Psi = r.Psi;
+        s.V = Math.Max(0, r.V);
         State = s;
     }
 

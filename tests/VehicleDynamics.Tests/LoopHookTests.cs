@@ -23,18 +23,33 @@ public class LoopHookTests
     }
 
     [Fact]
-    public void ApplyCollision_WritesPoseAndSpeed_OnlyWhenImpulseApplied()
+    public void ApplyCollision_WritesPoseHeadingAndSpeed()
     {
         var d = new Dyn(new VehicleParameters(), VehicleState.AtRest());
         var s = d.State; s.V = 20; d.State = s;
-
-        d.ApplyCollision(new CollisionResult(false, 1, 2, 0.5, 5, 0, 0));
-        Assert.Equal((1.0, 2.0), (d.State.X, d.State.Y));
-        Assert.Equal(20, d.State.V);
-        Assert.Equal(0, d.State.Psi);
-
         d.ApplyCollision(new CollisionResult(true, 3, 4, 0.5, 12, 8, -8));
         Assert.Equal((3.0, 4.0, 0.5, 12.0), (d.State.X, d.State.Y, d.State.Psi, d.State.V));
+    }
+
+    [Fact]
+    public void SustainedContact_RemovesApproachingNormalVelocityOnly()
+    {
+        // Wall normal +Y (wall below the car). Car heading 30 deg below the wall tangent, i.e. approaching.
+        double a = -Math.PI / 6;
+        var c = new CollisionInput(0, 0, a, 0, 20, 0, 1, 0.05);
+        var r = SustainedContact.Resolve(c);
+        Assert.True(r.SustainedContact);
+        Assert.False(r.ImpulseApplied);
+        Assert.Equal(20 * Math.Cos(a), r.V, 12);   // tangential part kept
+        Assert.Equal(a, r.Psi);                     // no heading change
+        Assert.Equal(0.05, r.Y, 12);               // pushed out
+
+        var headOn = SustainedContact.Resolve(new CollisionInput(0, 0, -Math.PI / 2, 0, 5, 0, 1, 0.01));
+        Assert.Equal(0, headOn.V, 9);
+
+        var leaving = SustainedContact.Resolve(new CollisionInput(0, 0, Math.PI / 6, 0, 20, 0, 1, 0.01));
+        Assert.False(leaving.SustainedContact);
+        Assert.Equal(20, leaving.V);
     }
 
     [Fact]

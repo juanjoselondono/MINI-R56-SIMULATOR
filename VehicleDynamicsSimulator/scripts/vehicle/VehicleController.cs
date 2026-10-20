@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using Godot;
 using Simulator.Dynamics;
+using Simulator.UI;
 using VehicleDynamics.Core.Simulation;
 using Dyn = VehicleDynamics.Core.Simulation.VehicleDynamics;
 
@@ -10,7 +11,7 @@ namespace Simulator.Vehicle;
 /// <summary>
 /// Owns the physics core for one car. Each render frame: sample inputs once (as levels), shape them in
 /// simulated time, advance the fixed-step <see cref="SimulationLoop"/>, then place this node at the
-/// interpolated physical pose. Nothing here alters the physics state except the explicit reset.
+/// interpolated physical pose. Nothing here alters the physics state except the explicit resets.
 /// </summary>
 public partial class VehicleController : Node3D
 {
@@ -34,18 +35,38 @@ public partial class VehicleController : Node3D
     public VehicleInputs LastInputs { get; private set; }
     public bool HeadlightsOn { get; private set; }
 
-    /// <summary>Optional per-step hook (track queries, collisions, lap timing), re-attached on every reset.</summary>
+    /// <summary>
+    /// Scripted driver for tests (self-test, autodrive): returns (throttle, brake, steer[-1..1]) levels instead of the
+    /// keyboard/gamepad. It goes through exactly the same input path as a human driver.
+    /// </summary>
+    public Func<VehicleController, (double Throttle, double Brake, double Steer)>? Autopilot { get; set; }
+
+    // Hooks re-attached to every new SimulationLoop (reset, dt change).
+    public Func<Dyn, VehicleInputs, VehicleInputs>? BeforeStep { get; set; }
     public Action<Dyn, VehicleInputs>? AfterStep { get; set; }
+    private Func<Dyn, TrackSample>? _trackContext;
+    public Func<Dyn, TrackSample>? TrackContext
+    {
+        get => _trackContext;
+        set { _trackContext = value; if (Loop != null) Loop.TrackContext = value; }
+    }
+    private SimulationRecorder? _recorder;
+    public SimulationRecorder? Recorder
+    {
+        get => _recorder;
+        set { _recorder = value; if (Loop != null) Loop.Recorder = value; }
+    }
 
     private VehicleVisuals? _visuals;
     private (double X, double Y, double Psi) _spawn;
+    private bool _spawnSet;
     private bool _wasBlown;
     private double _autodriveSeconds = -1;
 
     public override void _Ready()
     {
         InputSetup.EnsureActions();
-        _spawn = VehicleModelAdapter.FromGodotTransform(GlobalTransform);
+        if (!_spawnSet) _spawn = VehicleModelAdapter.FromGodotTransform(GlobalTransform);
         _visuals = GetNodeOrNull<VehicleVisuals>("Visuals");
         if (_visuals != null) _visuals.WheelRadius = Parameters.WheelRadius;
 
@@ -55,27 +76,55 @@ public partial class VehicleController : Node3D
         {
             _autodriveSeconds = arg.Contains('=') ? double.Parse(arg.Split('=')[1], System.Globalization.CultureInfo.InvariantCulture) : 10;
             AutoShift = true;
+            Autopilot = _ => (1, 0, 0);
         }
-        ResetVehicle();
+        if (Dynamics == null) ResetVehicle();
+    }
+
+    public void SetSpawn(double x, double y, double psi)
+    {
+        _spawn = (x, y, psi);
+        _spawnSet = true;
     }
 
     /// <summary>Rebuilds the model at the spawn pose, at rest, with the current parameters.</summary>
-    public void ResetVehicle()
+    public void ResetVehicle() => ResetVehicleAt(_spawn.X, _spawn.Y, _spawn.Psi);
+
+    /// <summary>Explicit reset to a pose at rest (spawn or recover-to-track). The only teleport in the game.</summary>
+    public void ResetVehicleAt(double x, double y, double psi)
     {
-        Dynamics = new Dyn(Parameters, VehicleState.AtRest(_spawn.X, _spawn.Y, _spawn.Psi));
-        Loop = new SimulationLoop(Dynamics) { AfterStep = (d, u) => AfterStep?.Invoke(d, u) };
+        bool paused = Loop?.Clock.Paused ?? false;
+        Dynamics = new Dyn(Parameters, VehicleState.AtRest(x, y, psi));
+        CreateLoop(paused);
         Shaper.Reset();
         _wasBlown = false;
         ApplyPose();
         EmitSignal(SignalName.VehicleReset);
     }
 
-    /// <summary>Validates and applies a new parameter set between physics steps (state is kept).</summary>
+    private void CreateLoop(bool paused)
+    {
+        Loop = new SimulationLoop(Dynamics, new SimulationClock(Parameters.Dt))
+        {
+            BeforeStep = (d, u) => BeforeStep?.Invoke(d, u) ?? u,
+            AfterStep = (d, u) => AfterStep?.Invoke(d, u),
+            TrackContext = _trackContext,
+            Recorder = _recorder,
+        };
+        Loop.Clock.Paused = paused;
+    }
+
+    /// <summary>
+    /// Validates and applies a new parameter set between physics steps; the state is kept. A new Dt takes effect by
+    /// rebuilding the fixed-step clock (the state carries over; the recorder keeps its own sample interval).
+    /// </summary>
     public void ApplyParameters(VehicleParameters p)
     {
         p.EnsureValid();
+        bool dtChanged = p.Dt != Parameters.Dt;
         Parameters = p.Clone();
         Dynamics.SetParameters(Parameters);
+        if (dtChanged) CreateLoop(Loop.Clock.Paused);
         if (_visuals != null) _visuals.WheelRadius = Parameters.WheelRadius;
     }
 
@@ -84,15 +133,25 @@ public partial class VehicleController : Node3D
 
     public override void _Process(double delta)
     {
-        if (Input.IsActionJustPressed(InputSetup.ResetVehicle)) ResetVehicle();
-        if (Input.IsActionJustPressed(InputSetup.Pause)) SetPaused(!Paused);
-        if (Input.IsActionJustPressed(InputSetup.ToggleAutoShift)) AutoShift = !AutoShift;
-        if (Input.IsActionJustPressed(InputSetup.ToggleHeadlights)) HeadlightsOn = !HeadlightsOn;
+        bool typing = UiFocus.IsTyping(GetViewport());
+        if (!typing)
+        {
+            if (Input.IsActionJustPressed(InputSetup.Pause)) SetPaused(!Paused);
+            if (Input.IsActionJustPressed(InputSetup.ToggleAutoShift)) AutoShift = !AutoShift;
+            if (Input.IsActionJustPressed(InputSetup.ToggleHeadlights)) HeadlightsOn = !HeadlightsOn;
+        }
 
-        double throttle = Input.GetActionStrength(InputSetup.Throttle);
-        double brake = Input.GetActionStrength(InputSetup.Brake);
-        double steer = Input.GetActionStrength(InputSetup.SteerLeft) - Input.GetActionStrength(InputSetup.SteerRight);
-        if (_autodriveSeconds > 0) { throttle = 1; brake = 0; steer = 0; }
+        double throttle = 0, brake = 0, steer = 0;
+        if (Autopilot != null)
+        {
+            (throttle, brake, steer) = Autopilot(this);
+        }
+        else if (!typing)
+        {
+            throttle = Input.GetActionStrength(InputSetup.Throttle);
+            brake = Input.GetActionStrength(InputSetup.Brake);
+            steer = Input.GetActionStrength(InputSetup.SteerLeft) - Input.GetActionStrength(InputSetup.SteerRight);
+        }
 
         if (!Paused)
         {
@@ -101,15 +160,16 @@ public partial class VehicleController : Node3D
         }
 
         double steerCmd = Shaper.Steer;
-        if (SpeedSensitiveSteering)
+        if (SpeedSensitiveSteering && Autopilot == null)
         {
             double ratio = Dynamics.State.V / SpeedSensitiveSteeringRefSpeed;
             steerCmd /= 1 + ratio * ratio;
         }
 
         var u = VehicleInputs.FromNormalized(Shaper.Throttle, Shaper.Brake, steerCmd, Parameters, AutoShift);
-        u.ShiftUp = Input.IsActionJustPressed(InputSetup.ShiftUp);
-        u.ShiftDown = Input.IsActionJustPressed(InputSetup.ShiftDown);
+        u.ShiftUp = !typing && Input.IsActionJustPressed(InputSetup.ShiftUp);
+        u.ShiftDown = !typing && Input.IsActionJustPressed(InputSetup.ShiftDown);
+        u.Surface = LastInputs.Surface;
         LastInputs = u;
 
         Loop.Advance(delta, u);
@@ -125,6 +185,14 @@ public partial class VehicleController : Node3D
                 $"AUTODRIVE t={s.Time:F3}s v={s.V * 3.6:F2}km/h dist={s.Distance:F1}m gear={s.Gear} rpm={s.EngineRpm:F0} x={s.X:F2} y={s.Y:F2} psi={s.Psi:F4} steps={Loop.Clock.StepsTaken}"));
             GetTree().Quit();
         }
+    }
+
+    /// <summary>Records the surface actually used by the last physics step (set by the BeforeStep hook).</summary>
+    public void NoteSurface(Surface s)
+    {
+        var u = LastInputs;
+        u.Surface = s;
+        LastInputs = u;
     }
 
     private void ApplyPose()

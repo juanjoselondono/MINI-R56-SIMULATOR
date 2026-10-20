@@ -1,13 +1,18 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="PackedScene" path="res://scenes/Vehicle.tscn" id="1_vehicle"]
 [ext_resource type="Script" path="res://scripts/camera/ChaseCamera.cs" id="2_cam"]
-[ext_resource type="Script" path="res://scripts/ui/DebugHud.cs" id="3_hud"]
+[ext_resource type="Script" path="res://scripts/ui/UiRoot.cs" id="3_ui"]
+[ext_resource type="Script" path="res://scripts/track/TrackManager.cs" id="4_track"]
+[ext_resource type="Script" path="res://scripts/simulation/SimulationManager.cs" id="5_sim"]
 
 [sub_resource type="ProceduralSkyMaterial" id="Sky_mat"]
-sky_top_color = Color(0.28, 0.47, 0.78, 1)
-sky_horizon_color = Color(0.68, 0.76, 0.86, 1)
+sky_top_color = Color(0.22, 0.42, 0.75, 1)
+sky_horizon_color = Color(0.66, 0.74, 0.84, 1)
+sky_curve = 0.12
+ground_bottom_color = Color(0.2, 0.24, 0.2, 1)
 ground_horizon_color = Color(0.6, 0.66, 0.62, 1)
+sun_angle_max = 20.0
 
 [sub_resource type="Sky" id="Sky_res"]
 sky_material = SubResource("Sky_mat")
@@ -16,34 +21,22 @@ sky_material = SubResource("Sky_mat")
 background_mode = 2
 sky = SubResource("Sky_res")
 ambient_light_source = 3
-tonemap_mode = 3
+ambient_light_sky_contribution = 0.85
+reflected_light_source = 2
+tonemap_mode = 4
+tonemap_white = 6.0
 ssao_enabled = true
+ssao_radius = 1.5
+ssao_intensity = 1.6
+glow_enabled = true
+glow_intensity = 0.4
+glow_bloom = 0.05
 fog_enabled = true
 fog_light_color = Color(0.68, 0.76, 0.86, 1)
-fog_density = 0.0015
-
-[sub_resource type="Shader" id="Ground_shader"]
-code = "shader_type spatial;
-// 10 m reference grid so speed and heading are readable before the track is built.
-uniform vec4 base_color : source_color = vec4(0.22, 0.34, 0.21, 1.0);
-uniform vec4 line_color : source_color = vec4(0.82, 0.82, 0.78, 1.0);
-varying vec3 world_pos;
-void vertex() { world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; }
-void fragment() {
-	vec2 c = world_pos.xz / 10.0;
-	vec2 g = abs(fract(c - 0.5) - 0.5) / fwidth(c);
-	float line = 1.0 - min(min(g.x, g.y), 1.0);
-	ALBEDO = mix(base_color.rgb, line_color.rgb, line * 0.7);
-	ROUGHNESS = 0.95;
-}
-"
-
-[sub_resource type="ShaderMaterial" id="Ground_mat"]
-shader = SubResource("Ground_shader")
-
-[sub_resource type="PlaneMesh" id="Ground_mesh"]
-material = SubResource("Ground_mat")
-size = Vector2(4000, 4000)
+fog_density = 0.0009
+fog_sky_affect = 0.25
+adjustment_enabled = true
+adjustment_saturation = 1.08
 
 [node name="Main" type="Node3D"]
 
@@ -51,32 +44,31 @@ size = Vector2(4000, 4000)
 environment = SubResource("Env")
 
 [node name="Sun" type="DirectionalLight3D" parent="."]
-transform = Transform3D(0.866025, -0.353553, 0.353553, 0, 0.707107, 0.707107, -0.5, -0.612372, 0.612372, 0, 50, 0)
-light_energy = 1.2
+transform = Transform3D(0.866025, -0.383022, 0.321394, 0, 0.642788, 0.766044, -0.5, -0.663414, 0.556670, 0, 60, 0)
+light_color = Color(1, 0.96, 0.9, 1)
+light_energy = 1.25
 shadow_enabled = true
-directional_shadow_max_distance = 250.0
+shadow_blur = 1.5
+directional_shadow_mode = 2
+directional_shadow_split_1 = 0.06
+directional_shadow_split_2 = 0.18
+directional_shadow_split_3 = 0.45
+directional_shadow_max_distance = 300.0
 
-[node name="Ground" type="MeshInstance3D" parent="."]
-mesh = SubResource("Ground_mesh")
+[node name="Track" type="Node3D" parent="."]
+script = ExtResource("4_track")
 
 [node name="Vehicle" parent="." instance=ExtResource("1_vehicle")]
 
 [node name="Camera" type="Camera3D" parent="."]
 current = true
-far = 3000.0
+near = 0.1
+far = 4000.0
 script = ExtResource("2_cam")
 TargetPath = NodePath("../Vehicle")
 
-[node name="HUD" type="CanvasLayer" parent="."]
+[node name="SimulationManager" type="Node" parent="."]
+script = ExtResource("5_sim")
 
-[node name="DebugHud" type="Label" parent="HUD"]
-offset_left = 16.0
-offset_top = 12.0
-offset_right = 1100.0
-offset_bottom = 200.0
-theme_override_colors/font_color = Color(1, 1, 1, 1)
-theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
-theme_override_constants/outline_size = 6
-theme_override_font_sizes/font_size = 18
-script = ExtResource("3_hud")
-VehiclePath = NodePath("../../Vehicle")
+[node name="UI" type="CanvasLayer" parent="."]
+script = ExtResource("3_ui")

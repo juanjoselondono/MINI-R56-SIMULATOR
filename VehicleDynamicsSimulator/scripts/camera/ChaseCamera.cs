@@ -1,9 +1,15 @@
 using Godot;
+using Simulator.Track;
+using Simulator.UI;
 using Simulator.Vehicle;
 
 namespace Simulator.CameraRig;
 
-/// <summary>Chase camera (smoothed, behind the car) and cockpit camera (driver eye point, rigid). Toggle with C.</summary>
+/// <summary>
+/// Chase camera (smoothed, behind the car) and cockpit camera (driver eye point, rigid). Toggle with C.
+/// The chase camera is pulled in front of barriers with a ray query against the track's barrier collision body.
+/// Impact shake only offsets the view; it never touches the vehicle state.
+/// </summary>
 public partial class ChaseCamera : Camera3D
 {
     [Export] public NodePath TargetPath { get; set; } = new("");
@@ -16,6 +22,8 @@ public partial class ChaseCamera : Camera3D
 
     public bool Cockpit { get; private set; }
     private Node3D? _target;
+    private float _shake;
+    private readonly RandomNumberGenerator _rng = new() { Seed = 3 };
 
     public override void _Ready()
     {
@@ -23,22 +31,43 @@ public partial class ChaseCamera : Camera3D
         if (_target != null) GlobalPosition = DesiredChasePosition();
     }
 
+    /// <summary>Adds view shake; intensity ~ impact severity / 10, decays in about half a second.</summary>
+    public void AddShake(float intensity) => _shake = Mathf.Clamp(_shake + intensity, 0, 1.5f);
+
+    /// <summary>Snap to the target (after a reset/teleport) instead of smoothing across the jump.</summary>
+    public void Snap()
+    {
+        if (_target != null) GlobalPosition = DesiredChasePosition();
+    }
+
     public override void _Process(double delta)
     {
         if (_target == null) return;
-        if (Input.IsActionJustPressed(InputSetup.ToggleCamera)) Cockpit = !Cockpit;
+        if (!UiFocus.IsTyping(GetViewport()) && Input.IsActionJustPressed(InputSetup.ToggleCamera)) Cockpit = !Cockpit;
 
         var t = _target.GlobalTransform;
+        _shake = Mathf.Max(0, _shake - 2.5f * (float)delta);
+        var jitter = new Vector3(_rng.RandfRange(-1, 1), _rng.RandfRange(-1, 1), _rng.RandfRange(-1, 1)) * (_shake * _shake * 0.25f);
+
         if (Cockpit)
         {
-            GlobalTransform = new Transform3D(t.Basis, t * CockpitEye);
-            Fov = 70;
+            GlobalTransform = new Transform3D(t.Basis, t * CockpitEye + jitter * 0.3f);
+            Fov = 72;
             return;
         }
 
         Fov = 65;
         float k = 1f - Mathf.Exp(-PositionSharpness * (float)delta);
-        GlobalPosition = GlobalPosition.Lerp(DesiredChasePosition(), k);
+        var desired = DesiredChasePosition();
+        var from = t.Origin + Vector3.Up * 1.2f;
+        var hit = GetWorld3D().DirectSpaceState.IntersectRay(
+            PhysicsRayQueryParameters3D.Create(from, desired, TrackManager.BarrierCollisionLayer));
+        if (hit.Count > 0)
+        {
+            var p = (Vector3)hit["position"];
+            desired = p + (from - p).Normalized() * 0.4f;
+        }
+        GlobalPosition = GlobalPosition.Lerp(desired, k) + jitter;
         var forward = -t.Basis.Z;
         LookAt(t.Origin + forward * LookAhead + Vector3.Up * 0.8f, Vector3.Up);
     }

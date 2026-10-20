@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.5.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\VehicleDynamics.Core\VehicleDynamics.Core.csproj" />
+  </ItemGroup>
+
+  <!-- Godot-independent game logic, compiled straight from the Godot project's sources. -->
+  <ItemGroup>
+    <Compile Include="..\..\VehicleDynamicsSimulator\scripts\audio\EngineSynth.cs" Link="Game\EngineSynth.cs" />
+    <Compile Include="..\..\VehicleDynamicsSimulator\scripts\race\LapTimer.cs" Link="Game\LapTimer.cs" />
+    <Compile Include="..\..\VehicleDynamicsSimulator\scripts\vehicle\CollisionManager.cs" Link="Game\CollisionManager.cs" />
+    <Compile Include="..\..\VehicleDynamicsSimulator\scripts\dev\CentrelineDriver.cs" Link="Game\CentrelineDriver.cs" />
+  </ItemGroup>
+
+</Project>

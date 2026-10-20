@@ -125,12 +125,55 @@ public class TrackAndCollisionTests
     public void CrossSection_SurfaceLookup()
     {
         var t = TrackLibrary.Oval();
-        Assert.Equal(Surface.Asphalt, t.SurfaceAt(0, 5.9));
-        Assert.Equal(Surface.Curb, t.SurfaceAt(0, -6.5));
-        Assert.Equal(Surface.Grass, t.SurfaceAt(0, 12));
-        Assert.Equal(Surface.Barrier, t.SurfaceAt(0, -16.5));
-        var (x, y) = t.PointAt(200, 8);
-        Assert.Equal(Surface.Grass, t.SurfaceAt(x, y));
+        Surface At(double s, double lat) { var (x, y) = t.PointAt(s, lat); return t.SurfaceAt(x, y); }
+        Assert.Equal(Surface.Asphalt, At(200, 5.9));
+        Assert.Equal(Surface.Curb, At(200, -6.5));
+        Assert.Equal(Surface.Grass, At(200, 12));
+        Assert.Equal(Surface.Barrier, At(200, -16.5));
+        Assert.Equal(Surface.Grass, At(200, 8));
+    }
+
+    [Theory]
+    [InlineData("Oval")]
+    [InlineData("Circuit")]
+    public void BarrierOffsets_AreContinuousAndNominalAwayFromJoints(string name)
+    {
+        var t = name == "Oval" ? TrackLibrary.Oval() : TrackLibrary.Circuit();
+        double worstJump = 0;
+        const double h = 0.01;
+        for (double s = 0; s < t.Length; s += h)
+        {
+            worstJump = Math.Max(worstJump, Math.Abs(t.BarrierOffsetLeftAt(s + h) - t.BarrierOffsetLeftAt(s)));
+            worstJump = Math.Max(worstJump, Math.Abs(t.BarrierOffsetRightAt(s + h) - t.BarrierOffsetRightAt(s)));
+        }
+        _out.WriteLine($"{name}: largest barrier offset change over {h} m = {worstJump:E2} m");
+        // Steepest blend: 5 m runoff change over 2 x 7.5 m (chicane joints) -> 0.0033 m per 0.01 m.
+        Assert.True(worstJump < 0.005);
+        for (int i = 0; i < t.Segments.Count; i++)
+        {
+            var seg = t.Segments[i];
+            if (seg.Length < 2 * TrackGeometry.BarrierTransitionLength + 1) continue;
+            double mid = seg.StartS + 0.5 * seg.Length;
+            Assert.Equal(t.BarrierOffsetLeft(i), t.BarrierOffsetLeftAt(mid), 12);
+            Assert.Equal(t.BarrierOffsetRight(i), t.BarrierOffsetRightAt(mid), 12);
+        }
+    }
+
+    [Fact]
+    public void BarrierContact_UsesBlendedOffsetAtJoints()
+    {
+        var t = TrackLibrary.Circuit();
+        // Joint main straight (runoff 12) -> T1 (runoff 15) at s = 600: blended barrier at 6 + 13.5 m.
+        double s = 600, lat = 6 + 13.5 - 0.5;
+        Assert.Equal(19.5, t.BarrierOffsetLeftAt(s), 9);
+        var (x, y) = t.PointAt(s, lat);
+        // A 1 m wide footprint reaches lat + 0.5 = the wall: no penetration beyond round-off.
+        var c = BarrierContact.Check(t, x, y, t.Heading(s), 0.01, 0.499);
+        Assert.Null(c);
+        var c2 = BarrierContact.Check(t, x, y, t.Heading(s), 0.01, 0.6);
+        Assert.NotNull(c2);
+        // Deepest corner is a rear one at s = 599.99, where the blend gives 19.5 - 3 * 0.5 * 0.01 / 20 = 19.49925 m.
+        Assert.Equal(0.10075, c2!.Value.Penetration, 9);
     }
 
     [Fact]

@@ -16,6 +16,13 @@ public static class InputSetup
     public const string ToggleCamera = "toggle_camera";
     public const string ToggleAutoShift = "toggle_autoshift";
     public const string ToggleHeadlights = "toggle_headlights";
+    public const string Recover = "recover_to_track";
+    public const string ToggleSetup = "toggle_setup_panel";
+    public const string ToggleTelemetry = "toggle_telemetry_panel";
+    public const string ToggleComparison = "toggle_comparison_panel";
+    public const string ToggleRecording = "toggle_recording";
+    public const string ToggleHelp = "toggle_help";
+    public const string Menu = "back_to_menu";
 
     public static void EnsureActions()
     {
@@ -30,6 +37,13 @@ public static class InputSetup
         Add(ToggleCamera, Key(Godot.Key.C), Button(JoyButton.Y));
         Add(ToggleAutoShift, Key(Godot.Key.T));
         Add(ToggleHeadlights, Key(Godot.Key.H));
+        Add(Recover, Key(Godot.Key.Backspace), Button(JoyButton.B));
+        Add(ToggleSetup, Key(Godot.Key.Tab));
+        Add(ToggleTelemetry, Key(Godot.Key.F2));
+        Add(ToggleComparison, Key(Godot.Key.F3));
+        Add(ToggleRecording, Key(Godot.Key.F5), Button(JoyButton.X));
+        Add(ToggleHelp, Key(Godot.Key.F1));
+        Add(Menu, Key(Godot.Key.Escape));
     }
 
     private static void Add(string action, params InputEvent[] events)

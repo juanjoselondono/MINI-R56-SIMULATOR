@@ -103,23 +103,68 @@ public sealed class TrackGeometry
 
     public double RunoffLeft(int segment) => _segments[segment].RunoffLeft ?? Section.Runoff;
     public double RunoffRight(int segment) => _segments[segment].RunoffRight ?? Section.Runoff;
+    /// <summary>Nominal barrier offset of a segment (its value away from the joints).</summary>
     public double BarrierOffsetLeft(int segment) => Section.RoadHalfWidth + RunoffLeft(segment);
     public double BarrierOffsetRight(int segment) => Section.RoadHalfWidth + RunoffRight(segment);
 
-    public Surface SurfaceAt(int segment, double lateral)
+    /// <summary>Half-length of the linear barrier-offset blend at each segment joint [m].</summary>
+    public const double BarrierTransitionLength = 20;
+
+    /// <summary>
+    /// Barrier offset as a continuous function of s: equal to the segment's nominal offset away from joints and
+    /// blended linearly over ±<see cref="BarrierTransitionLength"/> (shortened to half the shorter neighbour) around
+    /// each joint, so a wall never steps when the runoff width changes. Physics and rendering both use this.
+    /// </summary>
+    public double BarrierOffsetLeftAt(double s) => BlendedBarrierOffset(s, left: true);
+    public double BarrierOffsetRightAt(double s) => BlendedBarrierOffset(s, left: false);
+
+    private double BlendedBarrierOffset(double s, bool left)
     {
-        double a = Math.Abs(lateral);
+        s = NormalizeS(s);
+        int i = SegmentIndexAt(s);
+        var seg = _segments[i];
+        double own = left ? BarrierOffsetLeft(i) : BarrierOffsetRight(i);
+        double fromStart = s - seg.StartS;
+        double toEnd = seg.StartS + seg.Length - s;
+
+        int prev = i - 1, next = i + 1;
+        if (prev < 0) prev = IsClosed ? _segments.Length - 1 : -1;
+        if (next >= _segments.Length) next = IsClosed ? 0 : -1;
+
+        if (prev >= 0)
+        {
+            double t = JointTransition(prev, i);
+            if (fromStart < t)
+            {
+                double other = left ? BarrierOffsetLeft(prev) : BarrierOffsetRight(prev);
+                return other + (own - other) * (0.5 + 0.5 * fromStart / t);
+            }
+        }
+        if (next >= 0)
+        {
+            double t = JointTransition(i, next);
+            if (toEnd < t)
+            {
+                double other = left ? BarrierOffsetLeft(next) : BarrierOffsetRight(next);
+                return other + (own - other) * (0.5 + 0.5 * toEnd / t);
+            }
+        }
+        return own;
+    }
+
+    private double JointTransition(int a, int b)
+        => Math.Min(BarrierTransitionLength, 0.5 * Math.Min(_segments[a].Length, _segments[b].Length));
+
+    public Surface SurfaceAt(in TrackProjection p)
+    {
+        double a = Math.Abs(p.Lateral);
         if (a <= Section.RoadHalfWidth) return Surface.Asphalt;
         if (a <= Section.RoadHalfWidth + Section.CurbWidth) return Surface.Curb;
-        double barrier = lateral >= 0 ? BarrierOffsetLeft(segment) : BarrierOffsetRight(segment);
+        double barrier = p.Lateral >= 0 ? BarrierOffsetLeftAt(p.S) : BarrierOffsetRightAt(p.S);
         return a <= barrier ? Surface.Grass : Surface.Barrier;
     }
 
-    public Surface SurfaceAt(double x, double y)
-    {
-        var p = Project(x, y);
-        return SurfaceAt(p.SegmentIndex, p.Lateral);
-    }
+    public Surface SurfaceAt(double x, double y) => SurfaceAt(Project(x, y));
 
     /// <summary>Nearest centerline point over all segments.</summary>
     public TrackProjection Project(double x, double y)

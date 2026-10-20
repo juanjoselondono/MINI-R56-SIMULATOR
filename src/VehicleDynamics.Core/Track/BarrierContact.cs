@@ -21,8 +21,8 @@ public static class BarrierContact
             double py = y + fl * halfLength * s + fw * halfWidth * c;
             var p = track.Project(px, py);
             double nlx = -Math.Sin(p.Heading), nly = Math.Cos(p.Heading);
-            double left = track.BarrierOffsetLeft(p.SegmentIndex);
-            double right = track.BarrierOffsetRight(p.SegmentIndex);
+            double left = track.BarrierOffsetLeftAt(p.S);
+            double right = track.BarrierOffsetRightAt(p.S);
             BarrierContactResult? r = null;
             if (p.Lateral > left)
                 r = new BarrierContactResult(-nlx, -nly, p.Lateral - left, px, py, true, p.S, corner);

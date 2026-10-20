@@ -7,8 +7,10 @@ public readonly record struct CollisionInput(
     double NormalX, double NormalY, double Penetration,
     double Restitution = 0.25, double FrictionLoss = 0.15, double MaxYawKick = 0.6);
 
+/// <param name="SustainedContact">true when no impulse was due (latched) but the approaching normal velocity was removed.</param>
 public readonly record struct CollisionResult(
-    bool ImpulseApplied, double X, double Y, double Psi, double V, double Severity, double NormalSpeed);
+    bool ImpulseApplied, double X, double Y, double Psi, double V, double Severity, double NormalSpeed,
+    bool SustainedContact = false);
 
 /// <summary>
 /// EXTENSION E3 (not in MATLAB): barrier impact for a car whose velocity is V along psi + beta.
@@ -58,6 +60,23 @@ public static class CollisionResponse
             psi = c.Psi + Math.Clamp(d, -c.MaxYawKick, c.MaxYawKick);
         }
         return new CollisionResult(true, x, y, psi, vNew, Math.Abs(un), un);
+    }
+}
+
+public static class SustainedContact
+{
+    /// <summary>
+    /// Non-penetration constraint for a contact that already received its impulse (latched): if the car still
+    /// approaches the wall (u_n &lt; 0), the normal velocity component is removed, V' = sqrt(V² − u_n²), with no bounce
+    /// and no heading change. The position is pushed out as in <see cref="CollisionResponse.Resolve"/>. Dissipative
+    /// (V' ≤ V), so pressing into a wall cannot build up speed; a head-on press stops the car.
+    /// </summary>
+    public static CollisionResult Resolve(in CollisionInput c)
+    {
+        var r = CollisionResponse.Resolve(c, allowImpulse: false);
+        if (!(r.NormalSpeed < 0)) return r;
+        double vt2 = Math.Max(0, c.V * c.V - r.NormalSpeed * r.NormalSpeed);
+        return r with { V = Math.Sqrt(vt2), SustainedContact = true };
     }
 }
 
