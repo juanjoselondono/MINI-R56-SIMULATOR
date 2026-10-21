@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Godot;
 using Simulator.Simulation;
+using Simulator.Track;
 using Simulator.UI;
 using Simulator.Vehicle;
 using VehicleDynamics.Core.Simulation;
@@ -63,15 +64,28 @@ public partial class SelfTest : Node
         try
         {
             await Frames(2);
-            foreach (var track in new[] { "Oval", "Circuit" })
+            // --selftest-only=Monaco runs just the converted-track suite (quick check after re-converting assets).
+            bool monacoOnly = OS.GetCmdlineUserArgs().Contains("--selftest-only=Monaco");
+            if (!monacoOnly)
             {
-                _track = track;
-                _sim.LoadTrack(track);
-                await Frames(2);
-                await TrackSuite();
+                foreach (var track in new[] { "Oval", "Circuit" })
+                {
+                    _track = track;
+                    _sim.LoadTrack(track);
+                    await Frames(2);
+                    await TrackSuite();
+                }
+                _track = "both";
+                await UiAndComparison();
             }
-            _track = "both";
-            await UiAndComparison();
+            if (TrackManager.Available.Contains("Monaco"))
+            {
+                _track = "Monaco";
+                _sim.LoadTrack("Monaco");
+                await Frames(2);
+                await MeshTrackSuite();
+            }
+            else GD.Print("[selftest] Monaco assets not converted (see docs/run_instructions.md) — Monaco suite skipped");
         }
         catch (Exception ex)
         {
@@ -103,7 +117,7 @@ public partial class SelfTest : Node
 
         // 3. A full lap with the scripted centreline driver, recorded.
         _sim.RestartSimulation();
-        var driver = new CentrelineDriver(_sim.Track.Geometry);
+        var driver = new CentrelineDriver(_sim.Track.Line);
         V.AutoShift = true;
         V.Autopilot = vc => driver.Drive(vc.Dynamics.State, vc.Dynamics.Outputs, vc.Parameters);
         _sim.Telemetry.Start(V, _sim.Track.TrackName, $"selftest_{_sim.Track.TrackName}");
@@ -152,8 +166,9 @@ public partial class SelfTest : Node
         while (D.State.Time < tEnd)
         {
             await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-            var pr = _sim.Track.Geometry.Project(D.State.X, D.State.Y);
-            worstBeyond = Math.Max(worstBeyond, Math.Max(pr.Lateral - _sim.Track.Geometry.BarrierOffsetLeftAt(pr.S), -pr.Lateral - _sim.Track.Geometry.BarrierOffsetRightAt(pr.S)));
+            var g = _sim.Track.Geometry!;
+            var pr = g.Project(D.State.X, D.State.Y);
+            worstBeyond = Math.Max(worstBeyond, Math.Max(pr.Lateral - g.BarrierOffsetLeftAt(pr.S), -pr.Lateral - g.BarrierOffsetRightAt(pr.S)));
         }
         V.AfterStep = prevAfter;
         cm.Impact -= OnImpact;
@@ -266,6 +281,104 @@ public partial class SelfTest : Node
         V.AutoShift = false;
         Check("standing start (E5 clutch)", reached && slippedAtStart && lockKmh > 5 && minRpm >= V.Parameters.IdleRpm,
             $"0–50 km/h in {F(t50, "0.00")} s; clutch slips from rest, locks at {F(lockKmh, "0.0")} km/h; min engine speed {F(minRpm, "0")} rpm");
+        _sim.RestartSimulation();
+    }
+
+    /// <summary>
+    /// Converted Assetto Corsa track: grid spawn, ground following, mesh surfaces → μ, grade (E6), a scripted lap on the
+    /// AC racing line with the Area3D gate cross-check, and wall contacts from the physics mesh without tunnelling.
+    /// </summary>
+    private async Task MeshTrackSuite()
+    {
+        var mesh = _sim.Track.Mesh!;
+        var s0 = D.State;
+        var (sx, sy, spsi) = _sim.Track.SpawnPose;
+        Check("spawn on the AC grid (pole)", s0.V == 0 && Math.Abs(s0.X - sx) < 1e-9 && Math.Abs(s0.Y - sy) < 1e-9 && Math.Abs(s0.Psi - spsi) < 1e-12,
+            $"pose=({F(s0.X, "0.00")}, {F(s0.Y, "0.00")}, {F(s0.Psi, "0.000")}) from models/start objects");
+        await Frames(2);
+        var g0 = mesh.Sample(s0.X, s0.Y, s0.Psi, V.Parameters);
+        // AC grid dummies are placed a little above the road surface, hence the 1 m tolerance on the height.
+        Check("ground under the grid", g0.Hit && Math.Abs(g0.Height - mesh.SpawnHeight) < 1.0 && g0.SurfaceKey == "TARMAC" && Math.Abs(V.GlobalPosition.Y - g0.Height) < 1e-3,
+            $"hit={g0.Hit}, h={F(g0.Height, "0.00")} m (AC grid {F(mesh.SpawnHeight, "0.00")} m), car body y={F(V.GlobalPosition.Y, "0.00")}, surface {g0.SurfaceKey}, μ factor {F(g0.Grip)}");
+
+        // Kerbs: probe the edges of the track limits every 10 m (the racing line itself rarely puts the CG on one).
+        int kerbHits = 0, probes = 0;
+        var line = _sim.Track.Line;
+        for (double sp = 0; sp < line.Length; sp += 10)
+        {
+            var pose = line.Pose(sp);
+            var (left, right) = line.Limits(sp);
+            foreach (double lat in new[] { left - 0.6, left - 0.2, -right + 0.2, -right + 0.6 })
+            {
+                var (px, py) = line.PointAt(sp, lat);
+                probes++;
+                if (mesh.Sample(px, py, pose.Psi, V.Parameters) is { Hit: true, SurfaceKey: "KERB" } k && k.Surface == VehicleDynamics.Core.Simulation.Surface.Curb) kerbHits++;
+            }
+        }
+        Check("kerb layer at the track limits", kerbHits > 20,
+            $"{kerbHits}/{probes} edge probes on KERB (μ factor {F(mesh.Friction.GetValueOrDefault("KERB", double.NaN))})");
+
+        // Lap on the racing line: record surfaces, grade and heights seen, and the start/finish Area3D events.
+        _sim.RestartSimulation();
+        var driver = new CentrelineDriver(_sim.Track.Line) { LateralMargin = 0.6 };
+        V.AutoShift = true;
+        V.Autopilot = vc => driver.Drive(vc.Dynamics.State, vc.Dynamics.Outputs, vc.Parameters);
+        int gateEvents = 0;
+        void OnGate() => gateEvents++;
+        mesh.StartFinishEntered += OnGate;
+        var keys = new Dictionary<string, int>();
+        var offAt = new List<string>();
+        double minH = double.MaxValue, maxH = double.MinValue, maxGrade = 0, gripMismatch = 0;
+        var prevAfter = V.AfterStep;
+        V.AfterStep = (d, u) =>
+        {
+            prevAfter?.Invoke(d, u);
+            if (_sim.CurrentGround is not { Hit: true } g) return;
+            keys[g.SurfaceKey] = keys.GetValueOrDefault(g.SurfaceKey) + 1;
+            if (g.SurfaceKey == "OFFTRACK" && offAt.Count < 400) offAt.Add(FormattableString.Invariant($"{_sim.Laps.Projection.S:0}/{_sim.Laps.Projection.Lateral:0.0}"));
+            minH = Math.Min(minH, g.Height); maxH = Math.Max(maxH, g.Height);
+            maxGrade = Math.Max(maxGrade, Math.Abs(u.RoadGrade));
+            gripMismatch = Math.Max(gripMismatch, Math.Abs(d.Outputs.FxMax - TractionLimit.FxMax(d.Parameters, d.Parameters.Mu * g.Grip, d.Parameters.Theta + g.Grade)));
+        };
+        _sim.Telemetry.Start(V, "Monaco", "selftest_Monaco");
+        int imp0 = _sim.Collisions.ImpulseCount;
+        bool lap = await Until(() => _sim.Laps.Laps.Count > 0, 400);
+        var entry = _sim.Telemetry.Stop(V);
+        V.AfterStep = prevAfter;
+        mesh.StartFinishEntered -= OnGate;
+        var rec = lap ? _sim.Laps.Laps[0] : default;
+        Check("scripted lap on the AC line", lap,
+            lap ? $"lap {F(rec.Time, "0.00")} s over {F(_sim.Track.Line.Length, "0")} m, valid={rec.Valid}, wall impacts={_sim.Collisions.ImpulseCount - imp0}" : "no lap within 400 s");
+        Check("start/finish Area3D trigger", gateEvents >= 1 && entry != null && entry.Run.Samples.Any(r => r.Event?.Contains("sf_gate") == true),
+            $"{gateEvents} gate event(s) logged with the lap timer's crossing");
+        if (offAt.Count > 0) GD.Print("[selftest] OFFTRACK at s/lat: " + string.Join(" ", offAt.Where((_, i) => i % 20 == 0)));
+        Check("mesh surfaces → μ (E2)", keys.ContainsKey("TARMAC") && gripMismatch < 1e-6,
+            $"steps per surface: {string.Join(", ", keys.OrderBy(k => k.Key).Select(k => $"{k.Key} {k.Value}"))}; max |F_x,max − μ·factor·F_z| = {gripMismatch:E1} N");
+        Check("elevation + grade (E6)", maxH - minH > 5 && maxGrade > 0.02 && maxGrade < 0.3,
+            $"ground height {F(minH, "0.0")}…{F(maxH, "0.0")} m, max |grade| {F(maxGrade * 100, "0.0")} %");
+
+        // Wall: steer into the right-hand side for 10 s; contacts from the physics mesh, never through a wall.
+        driver.TargetLateral = -30;
+        driver.MaxSpeed = 20;
+        var cm = _sim.Collisions;
+        int i0 = cm.ImpulseCount, c0 = cm.ConsecutiveImpulses;
+        bool tunnelled = false;
+        var space = mesh.GetWorld3D().DirectSpaceState;
+        double tEnd = D.State.Time + 10;
+        while (D.State.Time < tEnd)
+        {
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            var pr = _sim.Track.Line.Project(D.State.X, D.State.Y);
+            float h = (_sim.CurrentGround?.Height ?? 0) + 0.5f;
+            var from = Simulator.Dynamics.VehicleModelAdapter.ToGodotPosition(pr.CenterX, pr.CenterY, h);
+            var to = Simulator.Dynamics.VehicleModelAdapter.ToGodotPosition(D.State.X, D.State.Y, h);
+            if (space.IntersectRay(PhysicsRayQueryParameters3D.Create(from, to, TrackManager.BarrierCollisionLayer)).Count > 0) tunnelled = true;
+        }
+        int imps = cm.ImpulseCount - i0;
+        Check("mesh wall contact (E3)", imps >= 1 && cm.ConsecutiveImpulses == c0 && !tunnelled,
+            $"{imps} impulse(s), consecutive {cm.ConsecutiveImpulses - c0}, CG crossed a wall: {tunnelled}");
+        V.Autopilot = null;
+        V.AutoShift = false;
         _sim.RestartSimulation();
     }
 

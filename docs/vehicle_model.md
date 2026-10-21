@@ -376,6 +376,7 @@ but unused), aerodynamic lift and wind, banking, kerbs and off-road surfaces, co
 | E4 | Dynamic single-track model with load-sensitive tyres and roll-stiffness split, §15 | user requests 2026-10-20; I_zz, M, μ user-supplied/requested, C_α, k, φ_f estimated |
 | E5 | Physical launch clutch, §16 | user request 2026-10-20 (replaces S1 by default) |
 | C1 | Correction of model.m §7: grip limit on the tyre force, §17 | user-approved 2026-10-20 |
+| E6 | Per-step road grade and track-supplied surface friction, §18 | Monaco integration 2026-10-20 |
 | S1 | (Optional since 2026-10-20: `LaunchModel = SeedRule`.) Clutch-slip launch: gear 1, wheel rpm < 3500, throttle > 0.1 → rpm = max(wheel, 1000 + throttle·2500) | monaco.html l. 209–215 |
 | S2 | Torque clamp rpm < 1000 → T(1000) | monaco.html `getTorque` |
 | S3 | Fuel cut rpm ≥ 6500 → T = 0; limiter flag for HUD/audio | monaco.html `getTorque` + l. 218–223 (rpm remap dropped) |
@@ -559,3 +560,25 @@ acceleration by about 7 %, not more. The large launch gain comes from E5, where 
 slipping.
 
 The MATLAB validation runs with C1 off (`VehicleParameters.FromReference`), and the reference layer is untouched.
+
+## 18. E6: road grade per step, and track-supplied surface friction
+
+model.m has one slope θ for the whole run (§1). On a track with elevation the slope changes along the lap, so the
+interactive layer accepts a per-step grade input:
+
+$$\theta_{eff} = \theta_{model.m} + \theta_{road}(t), \qquad \theta_{road} = \texttt{VehicleInputs.RoadGrade}\ \text{[rad, + uphill]}$$
+
+$\theta_{eff}$ replaces θ everywhere model.m uses it: $F_{x,max}$ (normal load $Mg\cos\theta$), rolling resistance,
+the grade force $Mg\sin\theta$ and the braking force. Nothing else changes. With RoadGrade = 0 (procedural tracks, the
+validation runs) the equations are exactly model.m's. With a constant RoadGrade they are bit-identical to setting
+model.m's slope to the same angle (`RoadGrade_EqualsGlobalSlope`).
+
+On a converted mesh track the grade is measured each step from the physics mesh: $\theta_{road} =
+\operatorname{atan2}(h_f - \tfrac12(h_{rl}+h_{rr}),\ L)$, where the heights come from rays under the front axle centre
+and the two rear wheels, and $L$ is the wheelbase. Camber/bank is used only to tilt the rendered body; the model stays
+planar and has no lateral grade force.
+
+**Surface friction.** `VehicleInputs.SurfaceGrip` > 0 replaces the E2 factor on μ:
+$\mu_{eff} = \mu \cdot \texttt{SurfaceGrip}$. Converted tracks set it to the `surfaces.ini` FRICTION of the surface
+under the CG (Monaco: TARMAC 0.99, KERB 0.95, OFFTRACK 0.95). 0 means "use the E2 factor of `Surface`"
+(`SurfaceGrip_OverridesSurfaceFactor`).

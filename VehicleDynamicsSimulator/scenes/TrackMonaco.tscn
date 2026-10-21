@@ -1,0 +1,11 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/track/MeshTrack.cs" id="1_mesh"]
+[ext_resource type="PackedScene" path="res://assets/tracks/monaco/monaco_visual.glb" id="2_visual"]
+
+[node name="TrackMonaco" type="Node3D"]
+script = ExtResource("1_mesh")
+DataPath = "res://assets/tracks/monaco/monaco_track.json"
+PhysicsMeshPath = "res://assets/tracks/monaco/monaco_physics.obj"
+
+[node name="Visual" parent="." instance=ExtResource("2_visual")]

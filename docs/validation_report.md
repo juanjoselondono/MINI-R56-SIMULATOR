@@ -567,3 +567,45 @@ roll-stiffness share, and μ = 1.05. Spins now need provocation, such as a flick
 Braking in a corner no longer rotates the car. If you want some lift-off adjustability back, lower C_αr or the front
 roll-stiffness share in the setup panel.
 
+## 14. Monaco (converted Assetto Corsa track, 2026-10-20)
+
+As in §11, this is a consistency check of the game layer, not a MATLAB comparison. E6 with RoadGrade = 0 and
+SurfaceGrip = 0 is exactly the previous code path, so §4–§10 are unaffected. The golden tests still pass.
+
+### 14.1 Unit tests
+
+`VehicleDynamics.Tests` **116/116** (4 new), `GameLogic.Tests` **11/11**.
+
+| New test | Result |
+|---|---|
+| `Polyline_SampledOval_MatchesAnalyticGeometry` (model.m oval sampled every 1 m) | length error < 1e-4 relative; curvature on the arc 1/80 to 4 decimals, 0 on straights; Project(PointAt(s, lat)) round trip within 0.05 m in s and 0.01 m in lateral, including across the closing seam; brute-force fallback far from the line |
+| `Polyline_Limits_InterpolateTrackEdges` | linear between points |
+| `RoadGrade_EqualsGlobalSlope` (6 %, 10 s full throttle) | bit-identical to model.m's global slope |
+| `SurfaceGrip_OverridesSurfaceFactor` | F_x,max = formula with μ·0.95; 0 falls back to the E2 factor |
+
+### 14.2 In-game self-test
+
+**37/37 passed** (Oval 14, Circuit 14, UI 1, Monaco 8), exit code 0. Monaco checks:
+
+| Check | Result |
+|---|---|
+| Spawn on the AC pole slot | pose (−347.18, −216.51, ψ 1.653) from `AC_START_0` |
+| Ground under the grid | ray hit at −14.15 m (the AC grid object sits 0.55 m higher), car body at the ground, TARMAC, friction 0.99 |
+| Kerb layer at the track limits | 161 of 1316 probes just inside the AC edge lines read KERB (friction 0.95) |
+| Scripted lap on the AC racing line | 190.20 s over 3287 m, valid, 0 wall impacts (cautious scripted driver, not a lap-time reference) |
+| Start/finish Area3D | 2 events (start and lap crossing), logged as `sf_gate` in the recorded run |
+| Mesh surfaces → μ | F_x,max equals μ·friction·F_z(θ_eff) on every step (max error 0 N) |
+| Elevation and grade | ground from −16.8 to 25.0 m; max \|grade\| 10.4 % |
+| Mesh wall contact (10 s steering into the right-hand wall) | 8 impulses, 0 on consecutive steps, CG never crossed a wall |
+
+During the lap, 15 steps (0.075 s) at s ≈ 2095 m read OFFTRACK. That is a small hole in the AC physics mesh where a
+wheel ray also misses, and the friction differs by 0.04.
+
+### 14.3 Frame-rate independence and performance
+
+`--track=Monaco --autodrive=30` at `--fixed-fps` 30, 60 and 144 gave bit-identical states
+(`V = 13.496965172003158 m/s`, `X = −274.3447834216452 m`), including the ray-based ground and wall queries.
+
+Rendered on the RTX 3050 (Vulkan Forward+, 1600×900, scripted driver, 600 frames): **16.84 ms average (59.4 fps,
+vsync-limited)**. Max frame 133 ms, a one-off hitch while shaders and textures load. Physics including the ray and shape
+queries costs 95 µs per step (0.32 ms per frame).

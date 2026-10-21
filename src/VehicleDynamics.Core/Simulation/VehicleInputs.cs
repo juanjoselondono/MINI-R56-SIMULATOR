@@ -16,6 +16,13 @@ public struct VehicleInputs
     public bool AutoShift;
     /// <summary>Surface under the car (E2). Asphalt when no track is used.</summary>
     public Surface Surface;
+    /// <summary>
+    /// Surface friction multiplier on μ from the track data (e.g. Assetto Corsa surfaces.ini FRICTION); 0 = use the E2
+    /// factor of <see cref="Surface"/>.
+    /// </summary>
+    public double SurfaceGrip;
+    /// <summary>E6: local road grade along the heading [rad], + = uphill, added to model.m's global slope. 0 on flat tracks.</summary>
+    public double RoadGrade;
 
     /// <summary>Builds inputs from a normalized steer command s in [-1, 1]: delta = s * MaxSteerAngle (E1).</summary>
     public static VehicleInputs FromNormalized(double throttle, double brake, double steer, VehicleParameters p, bool autoShift = false)

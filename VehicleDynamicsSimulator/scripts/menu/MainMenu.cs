@@ -37,10 +37,12 @@ public partial class MainMenu : Control
         v.AddChild(UiTheme.Label("TRACK", 14, UiTheme.Accent));
         foreach (var name in Track.TrackManager.Available)
         {
-            var g = Track.TrackManager.Create(name);
-            string desc = name == "Oval"
-                ? $"model.m oval: 2 × 400 m straights, R80 semicircles — {g.Length:0.0} m"
-                : $"Road circuit: hairpin R28, sweepers R120–150, chicane — {g.Length:0} m";
+            string desc = name switch
+            {
+                "Oval" => $"model.m oval: 2 × 400 m straights, R80 semicircles — {Track.TrackManager.Create(name).Length:0.0} m",
+                "Circuit" => $"Road circuit: hairpin R28, sweepers R120–150, chicane — {Track.TrackManager.Create(name).Length:0} m",
+                _ => "Monaco street circuit — converted Assetto Corsa track (mesh surfaces, walls, elevation)",
+            };
             var b = UiTheme.Button($"{name}   ·   {desc}", () => { GameSession.TrackName = name; Start(); });
             b.Alignment = HorizontalAlignment.Left;
             b.CustomMinimumSize = new Vector2(620, 46);

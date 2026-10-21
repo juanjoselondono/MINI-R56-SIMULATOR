@@ -128,6 +128,28 @@ So what you see is what you hit.
 | Godot collision shapes | `StaticBody3D` with the barrier faces (layer 2) | Used only by the chase camera's ray query, which keeps the camera in front of walls. |
 | Recovery | `RecoverToTrack`: explicit reset at rest on the nearest centreline point, engine damage kept, lap invalid | The model has no reverse gear, so a head-on stop needs this. |
 
+### 4.1 Converted mesh tracks (Monaco)
+
+`TrackManager.MeshTracks` maps a name to a scene (`scenes/TrackMonaco.tscn`). Its root is a `MeshTrack` with:
+- a `Visual` child: the rendered GLB;
+- one hidden `StaticBody3D` per surface of the physics OBJ, built at load with trimesh (`ConcavePolygonShape3D`) shapes
+  and no mesh instance;
+- a `StartFinish` `Area3D`.
+
+| Concern | Implementation |
+|---|---|
+| Reference line | `PolylineTrack` (core) from the AC racing line in `monaco_track.json`: s = 0 at the timing gate; track limits from the per-point edge distances. `TrackManager.Line` (`ITrackLine`) drives `LapTimer`, `RecoverToTrack`, the scripted driver and telemetry s/lateral. |
+| Collision layers | WALL → layer 2 (`BarrierCollisionLayer`, also used by the camera ray), TARMAC → layer 3, KERB → layer 4, vehicle trigger → layer 5. Each body has `surface` and `friction` metadata. |
+| Ground, surface, grade | `BeforeStep` → `MeshTrack.Sample`: 3 wheel rays (front axle centre, rear left, rear right) and a CG ray against layers 3–4. Gives height, normal, grade (→ `RoadGrade`, E6) and surface key → `surfaces.ini` friction (→ `SurfaceGrip`). Kerb wins if it lies on or above the tarmac (−0.15 m). A wheel off the mesh takes the mean height of the others. A CG ray that misses with all wheels on ground is a mesh seam (TARMAC); otherwise OFFTRACK. |
+| Walls | `CollisionManager(MeshTrack.WallContact)`: footprint box (3.76 × 1.68 × 1.0 m, 0.7 m above the ground) `CollideShape` against layer 2 → `BarrierContactResult` → the same E3 response as on procedural tracks. |
+| Rendering | `VehicleController.GroundPose` lifts and tilts the body onto the ground at the interpolated pose. This is a read-only query, so the physics does not depend on the frame rate (verified bit-identical at 30/60/144 fps). |
+| Start/finish | `Area3D` (box across the gate, mask layer 5) detects `Vehicle.tscn`'s `TriggerVolume` → telemetry event `sf_gate:lap=N`. `LapTimer` (step-exact) is authoritative. |
+
+The visual GLB is never queried by physics. Its import (`tools/track_post_import.gd`) strips any collision, turns off
+shadows on nodes tagged `__ns` (transparent, foliage, fences, small props), applies visibility ranges (`__vr<m>`) to
+small props, and assigns the converted `materials/*.tres`. Godot generates LODs and compresses the meshes. The physics
+OBJ imports uncompressed (16-bit position quantisation over a 1.5 km box would be about 2 cm).
+
 ## 5. Telemetry and configuration
 
 `TelemetryService` attaches a core `SimulationRecorder` to the loop:
@@ -178,7 +200,7 @@ VehicleDynamicsSimulator/
 ├── scripts/
 │   ├── simulation/  SimulationManager (hooks, reset/recover, GameSession), TelemetryService
 │   ├── vehicle/     VehicleController (core owner, inputs, interpolation), VehicleVisuals, CollisionManager, InputSetup
-│   ├── track/       TrackManager, TrackMeshBuilder, TrackScenery
+│   ├── track/       TrackManager, TrackMeshBuilder, TrackScenery, MeshTrack (converted tracks)
 │   ├── race/        LapTimer
 │   ├── camera/      ChaseCamera (chase / bonnet / cockpit, barrier ray, shake)
 │   ├── dynamics/    VehicleModelAdapter (model ↔ Godot)
@@ -188,7 +210,10 @@ VehicleDynamicsSimulator/
 │   ├── effects/     ImpactEffects
 │   ├── menu/        MainMenu
 │   └── dev/         SelfTest, CentrelineDriver, ScreenshotRig, PerfProbe
-└── assets/  vehicles/mini_jcw (body, 4 wheels, steering wheel, textures, meta JSON), materials (procedural shaders)
+├── tools/   track_post_import.gd (GLB import script), write_input_map.gd
+└── assets/  vehicles/mini_jcw (body, 4 wheels, steering wheel, textures, meta JSON), materials (procedural shaders),
+             tracks/monaco (monaco_visual.glb, monaco_physics.obj, monaco_track.json, textures/, materials/;
+             ac_source/ = the original AC files, ignored by Godot and git)
 ```
 
 ## 9. Extending
@@ -197,6 +222,9 @@ VehicleDynamicsSimulator/
   `TrackManager.Create`. Meshes, surfaces, barriers, scenery, lap timing and the self-test follow from the geometry.
   Keep inner barrier offsets below the corner radius, and keep non-adjacent parts of the track further apart than the
   sum of their barrier offsets, so projection stays unambiguous.
+- **New converted track:** run `tools/asset_pipeline/kn5_convert.py` on the AC folder, set the GLB's import script to
+  `res://tools/track_post_import.gd` (copy `monaco_visual.glb.import`), make a scene like `TrackMonaco.tscn`, and add it
+  to `TrackManager.Available` and `MeshTracks`.
 - **New parameter:**
   1. Add the property to `VehicleParameters`, under the right group, with a range in `Validate()`.
   2. Use it in the equations.

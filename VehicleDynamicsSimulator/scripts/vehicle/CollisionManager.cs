@@ -9,6 +9,12 @@ namespace Simulator.Vehicle;
 public readonly record struct ImpactEvent(double Time, double Severity, double PointX, double PointY, double NormalX, double NormalY);
 
 /// <summary>
+/// Where barrier contacts come from: analytic walls of a <see cref="TrackGeometry"/>, or shape queries against a
+/// collision mesh (converted tracks). Inputs: footprint centre, heading, half extents (model frame).
+/// </summary>
+public delegate BarrierContactResult? BarrierContactSource(double x, double y, double psi, double halfLength, double halfWidth);
+
+/// <summary>
 /// Barrier collisions, run once per physics step (never per render frame). Detection is analytic against the
 /// track's barrier walls (core <see cref="BarrierContact"/>); the response is the documented extension E3:
 /// one impulse on contact entry (<see cref="CollisionResponse"/>, latched by <see cref="ContactLatch"/>), then a
@@ -28,7 +34,7 @@ public sealed class CollisionManager
 
     private readonly ContactLatch _latch = new();
 
-    public TrackGeometry Track { get; set; }
+    public BarrierContactSource Contacts { get; set; }
     public bool InContact { get; private set; }
     public bool Scraping { get; private set; }
     /// <summary>Impact severity of the last step (|u_n| at entry, m/s), 0 if none.</summary>
@@ -44,7 +50,9 @@ public sealed class CollisionManager
 
     public event Action<ImpactEvent>? Impact;
 
-    public CollisionManager(TrackGeometry track) => Track = track;
+    public CollisionManager(TrackGeometry track) : this((x, y, psi, hl, hw) => BarrierContact.Check(track, x, y, psi, hl, hw)) { }
+
+    public CollisionManager(BarrierContactSource contacts) => Contacts = contacts;
 
     public void Reset()
     {
@@ -62,7 +70,7 @@ public sealed class CollisionManager
         double c = Math.Cos(s.Psi), sn = Math.Sin(s.Psi);
         double cx = s.X - CentreBehindCg * c, cy = s.Y - CentreBehindCg * sn;
 
-        var contact = BarrierContact.Check(Track, cx, cy, s.Psi, HalfLength, HalfWidth);
+        var contact = Contacts(cx, cy, s.Psi, HalfLength, HalfWidth);
         if (contact is not { } k)
         {
             InContact = false;

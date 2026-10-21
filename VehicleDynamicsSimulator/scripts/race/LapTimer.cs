@@ -17,7 +17,7 @@ public readonly record struct LapRecord(int Lap, double Time, bool Valid);
 /// </summary>
 public sealed class LapTimer
 {
-    public TrackGeometry Track { get; }
+    public ITrackLine Track { get; }
     public double OffTrackAllowance { get; set; } = 1.0;
 
     /// <summary>Current lap number; 0 until the first forward crossing of the line.</summary>
@@ -37,7 +37,7 @@ public sealed class LapTimer
     private int _checkpoint;   // 0 none, 1 passed L/3, 2 passed 2L/3
     private double _offTrack;
 
-    public LapTimer(TrackGeometry track) => Track = track;
+    public LapTimer(ITrackLine track) => Track = track;
 
     public void Reset()
     {
@@ -55,7 +55,8 @@ public sealed class LapTimer
         double L = Track.Length;
         double sNow = p.S;
 
-        if (Math.Abs(p.Lateral) > Track.Section.RoadHalfWidth + Track.Section.CurbWidth) _offTrack += dt;
+        var (left, right) = Track.Limits(p.S);
+        if (p.Lateral > left || p.Lateral < -right) _offTrack += dt;
         if (_offTrack > OffTrackAllowance) LapValid = false;
 
         if (Lap == 0 && s.V > 0.05 && (sNow < 50 || sNow > L - 50))

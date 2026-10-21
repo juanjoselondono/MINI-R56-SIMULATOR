@@ -39,6 +39,8 @@ public partial class SimulationManager : Node
     public LapTimer Laps { get; private set; } = null!;
     public TelemetryService Telemetry { get; } = new();
     public Surface CurrentSurface { get; private set; }
+    /// <summary>Last ground sample on a converted mesh track (null on procedural tracks).</summary>
+    public GroundSample? CurrentGround { get; private set; }
     public double LastImpactSeverity { get; private set; }
     public string? LastMessage { get; private set; }
     public double LastMessageTime { get; private set; } = -1e9;
@@ -78,7 +80,7 @@ public partial class SimulationManager : Node
         if (args.Contains("--demo"))
         {
             // Scripted centreline driver through the normal input path (screenshots / attract mode).
-            var driver = new Dev.CentrelineDriver(Track.Geometry);
+            var driver = new Dev.CentrelineDriver(Track.Line);
             Vehicle.AutoShift = true;
             Vehicle.Autopilot = vc => driver.Drive(vc.Dynamics.State, vc.Dynamics.Outputs, vc.Parameters);
         }
@@ -88,21 +90,48 @@ public partial class SimulationManager : Node
     {
         Track.LoadTrack(name);
         GameSession.TrackName = name;
-        Collisions = new CollisionManager(Track.Geometry);
+        Collisions = Track.Mesh is { } meshTrack
+            ? new CollisionManager(meshTrack.WallContact)
+            : new CollisionManager(Track.Geometry!);
         Collisions.Impact += OnImpact;
-        Laps = new LapTimer(Track.Geometry);
+        Laps = new LapTimer(Track.Line);
         Laps.LapCompleted += lap =>
         {
             Telemetry.AddEvent(FormattableString.Invariant($"lap:{lap.Lap}:{lap.Time:F3}:{(lap.Valid ? "valid" : "invalid")}"));
             Notify(FormattableString.Invariant($"Lap {lap.Lap}: {FormatTime(lap.Time)}{(lap.Valid ? "" : " (invalid)")}"));
         };
 
-        Vehicle.BeforeStep = (d, u) =>
+        if (Track.Mesh is { } mesh)
         {
-            u.Surface = Track.Geometry.SurfaceAt(d.State.X, d.State.Y);
-            CurrentSurface = u.Surface;
-            return u;
-        };
+            // Converted track: surface (→ μ from surfaces.ini) and local grade from the physics mesh under the car;
+            // the same sample places the car body on the ground. The Area3D gate is logged as a cross-check of the
+            // step-exact lap timer (which stays authoritative: it runs at the 200 Hz physics rate).
+            mesh.StartFinishEntered += () => Telemetry.AddEvent(FormattableString.Invariant($"sf_gate:lap={Laps.Lap}"));
+            Vehicle.BeforeStep = (d, u) =>
+            {
+                var g = mesh.Sample(d.State.X, d.State.Y, d.State.Psi, Vehicle.Parameters);
+                CurrentGround = g;
+                u.Surface = g.Surface;
+                u.SurfaceGrip = g.Grip;
+                u.RoadGrade = g.Grade;
+                CurrentSurface = u.Surface;
+                return u;
+            };
+            Vehicle.GroundPose = (x, y, psi) =>
+                mesh.Sample(x, y, psi, Vehicle.Parameters, updateHint: false) is { Hit: true } g ? (g.Height, g.Up) : null;
+        }
+        else
+        {
+            var geometry = Track.Geometry!;
+            CurrentGround = null;
+            Vehicle.BeforeStep = (d, u) =>
+            {
+                u.Surface = geometry.SurfaceAt(d.State.X, d.State.Y);
+                CurrentSurface = u.Surface;
+                return u;
+            };
+            Vehicle.GroundPose = null;
+        }
         Vehicle.AfterStep = (d, u) =>
         {
             Collisions.AfterStep(d);
@@ -157,8 +186,8 @@ public partial class SimulationManager : Node
     public void RecoverToTrack()
     {
         var st = Vehicle.Dynamics.State;
-        var pr = Track.Geometry.Project(st.X, st.Y);
-        var pose = Track.Geometry.Pose(pr.S);
+        var pr = Track.Line.Project(st.X, st.Y);
+        var pose = Track.Line.Pose(pr.S);
         Vehicle.ResetVehicleAt(pose.X, pose.Y, pose.Psi, keepEngineDamage: true);
         Collisions.Reset();
         Laps.InvalidateLap();

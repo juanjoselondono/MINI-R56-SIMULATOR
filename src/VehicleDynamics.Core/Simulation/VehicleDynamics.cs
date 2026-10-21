@@ -373,7 +373,9 @@ public sealed class VehicleDynamics
         double brake = Math.Clamp(u.Brake, 0, 1);
         double rw = p.WheelRadius;
         double tr = TotalRatio(s.Gear);
-        double cosT = Math.Cos(p.Theta);
+        // model.m's global slope plus the local track grade (E6; 0 unless a mesh track supplies it).
+        double theta = p.Theta + u.RoadGrade;
+        double cosT = Math.Cos(theta);
         bool slipping = PhysicalClutch && !s.ClutchLocked && !s.EngineBlown;
         o.ClutchLocked = !slipping;
 
@@ -414,14 +416,14 @@ public sealed class VehicleDynamics
             ? Math.Max(p.Mass, massFactorMass - p.EngineInertia * (tr / rw) * (tr / rw))
             : massFactorMass;
 
-        double muEff = p.Mu * p.GripFactor(u.Surface);
-        o.FxMax = TractionLimit.FxMax(p, muEff);
+        double muEff = p.Mu * (u.SurfaceGrip > 0 ? u.SurfaceGrip : p.GripFactor(u.Surface));
+        o.FxMax = TractionLimit.FxMax(p, muEff, theta);
         double delta = Math.Clamp(u.SteerAngle, -p.MaxSteerAngle, p.MaxSteerAngle);
         o.SteerAngle = delta;
 
         o.FDrag = Resistance.Drag(p, v);
-        o.FRolling = Resistance.Rolling(p, Math.Abs(v), p.RollingFactor(u.Surface));
-        o.FGrade = Resistance.Grade(p);
+        o.FRolling = Resistance.Rolling(p, Math.Abs(v), p.RollingFactor(u.Surface), theta);
+        o.FGrade = Resistance.Grade(p, theta);
         double fRes = o.FDrag + o.FRolling + o.FGrade;
         double fBrakeMax = (p.BrakeMuFactor * muEff) * (p.Mass * p.G * cosT);
         o.FEngineBrake = slipping ? 0 : p.EngineBrakeTorque * tr / rw;

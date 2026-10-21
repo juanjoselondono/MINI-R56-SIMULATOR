@@ -11,14 +11,14 @@ namespace Simulator.Dev;
 /// </summary>
 public sealed class CentrelineDriver
 {
-    public TrackGeometry Track { get; }
+    public ITrackLine Track { get; }
     /// <summary>Fraction of the lateral grip (F_grip / M) the speed planner uses.</summary>
     public double LateralMargin { get; set; } = 0.75;
     public double PlannedDecel { get; set; } = 4.5;
     public double MaxSpeed { get; set; } = 60;
     public double TargetLateral { get; set; }
 
-    public CentrelineDriver(TrackGeometry track) => Track = track;
+    public CentrelineDriver(ITrackLine track) => Track = track;
 
     public (double Throttle, double Brake, double Steer) Drive(in VehicleState s, in VehicleOutputs o, VehicleParameters p)
     {

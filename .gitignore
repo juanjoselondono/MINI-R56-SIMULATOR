@@ -5,3 +5,8 @@ obj/
 .vs/
 validation/out/
 *.tmp.m
+__pycache__/
+# Converted Assetto Corsa tracks: third-party data (no licence information), regenerated locally by
+# tools/asset_pipeline/kn5_convert.py from <track>/ac_source/. Only the Godot import settings are tracked.
+VehicleDynamicsSimulator/assets/tracks/*/*
+!VehicleDynamicsSimulator/assets/tracks/*/*.import

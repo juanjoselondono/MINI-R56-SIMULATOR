@@ -62,6 +62,11 @@ public partial class VehicleController : Node3D
         get => _trackContext;
         set { _trackContext = value; if (Loop != null) Loop.TrackContext = value; }
     }
+    /// <summary>
+    /// Ground under the car at a model-frame pose (height, surface normal), or null for the flat y = 0 plane. Rendering
+    /// only: the body is lifted and tilted onto the ground; the planar dynamics are unchanged (grade enters via inputs).
+    /// </summary>
+    public Func<double, double, double, (float Height, Vector3 Up)?>? GroundPose { get; set; }
     private SimulationRecorder? _recorder;
     public SimulationRecorder? Recorder
     {
@@ -253,7 +258,13 @@ public partial class VehicleController : Node3D
     private void ApplyPose()
     {
         var (x, y, psi) = Loop.InterpolatedPose();
-        GlobalTransform = VehicleModelAdapter.ToGodotTransform(x, y, psi);
+        var transform = VehicleModelAdapter.ToGodotTransform(x, y, psi);
+        if (GroundPose?.Invoke(x, y, psi) is { } ground)
+        {
+            var tilt = new Basis(new Quaternion(Vector3.Up, ground.Up.Normalized()));
+            transform = new Transform3D(tilt * transform.Basis, transform.Origin with { Y = ground.Height });
+        }
+        GlobalTransform = transform;
 
         var prev = Loop.PreviousState;
         var cur = Dynamics.State;

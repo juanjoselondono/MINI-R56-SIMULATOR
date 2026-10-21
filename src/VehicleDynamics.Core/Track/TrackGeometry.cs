@@ -12,7 +12,7 @@ public sealed record CrossSection(double RoadHalfWidth = 6, double CurbWidth = 1
 /// Track centerline built from a start pose and an ordered list of segments. Used by both physics queries
 /// and rendering (sampling). Lateral offsets are positive to the LEFT of the travel direction.
 /// </summary>
-public sealed class TrackGeometry
+public sealed class TrackGeometry : ITrackLine
 {
     private readonly TrackSegment[] _segments;
 
@@ -154,6 +154,10 @@ public sealed class TrackGeometry
 
     private double JointTransition(int a, int b)
         => Math.Min(BarrierTransitionLength, 0.5 * Math.Min(_segments[a].Length, _segments[b].Length));
+
+    /// <summary>Track limits: road plus kerb on both sides.</summary>
+    public (double Left, double Right) Limits(double s)
+        => (Section.RoadHalfWidth + Section.CurbWidth, Section.RoadHalfWidth + Section.CurbWidth);
 
     public Surface SurfaceAt(in TrackProjection p)
     {
