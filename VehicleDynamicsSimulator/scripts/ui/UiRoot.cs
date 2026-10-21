@@ -82,6 +82,7 @@ public partial class UiRoot : CanvasLayer
             "P / Start           pause / resume the simulation clock",
             "C / Y               camera: chase / bonnet / cockpit",
             "H                   headlights",
+            "L / D-pad up        racing line (green accelerate, yellow coast, red brake)",
             "F5 / X              start / stop telemetry recording",
             "Tab                 vehicle setup panel",
             "F2                  telemetry dashboard",

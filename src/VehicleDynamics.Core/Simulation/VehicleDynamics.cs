@@ -70,7 +70,8 @@ public sealed class VehicleDynamics
 
     private bool PhysicalClutch => _p.ClutchLaunch && _p.LaunchModel == LaunchModel.PhysicalClutch;
     private double OmegaIdle => _p.IdleRpm * RpmToRad;
-    private bool Dynamic => _p.LateralModel == LateralModel.Dynamic;
+    /// <summary>E4 dynamic single-track model active (v_y and yaw rate are states).</summary>
+    public bool Dynamic => _p.LateralModel == LateralModel.Dynamic;
 
     /// <summary>Crank speed imposed by the wheels in gear g [rad/s].</summary>
     private double WheelSideOmega(double v, int gear) => v / _p.WheelRadius * TotalRatio(gear);
@@ -334,7 +335,15 @@ public sealed class VehicleDynamics
         if (!double.IsFinite(r.X) || !double.IsFinite(r.Y) || !double.IsFinite(r.Psi) || !double.IsFinite(r.V))
             throw new ArgumentException("Non-finite collision result.", nameof(r));
         double speed = Speed;
-        if (r.V > speed + 1e-9)
+        if (double.IsFinite(r.YawRate))
+        {
+            // Rigid-body impact: energy moves between translation and rotation; the total must not grow.
+            double before = _p.Mass * speed * speed + _p.YawInertia * State.YawRate * State.YawRate;
+            double after = _p.Mass * r.V * r.V + _p.YawInertia * r.YawRate * r.YawRate;
+            if (after > before * (1 + 1e-9) + 1e-9)
+                throw new ArgumentException("A collision response must not increase kinetic energy.", nameof(r));
+        }
+        else if (r.V > speed + 1e-9)
             throw new ArgumentException("A collision response must not increase speed.", nameof(r));
         var s = State;
         s.X = r.X;
@@ -350,7 +359,8 @@ public sealed class VehicleDynamics
             double rel = FrameConversion.WrapAngle(heading - r.Psi);
             s.V = r.V * Math.Cos(rel);
             s.Vy = r.V * Math.Sin(rel);
-            s.YawRate *= speed > 1e-9 ? Math.Min(1, r.V / speed) : 0;
+            if (double.IsFinite(r.YawRate)) s.YawRate = r.YawRate;
+            else s.YawRate *= speed > 1e-9 ? Math.Min(1, r.V / speed) : 0;
         }
         State = s;
     }

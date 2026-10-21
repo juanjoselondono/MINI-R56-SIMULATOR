@@ -609,3 +609,24 @@ wheel ray also misses, and the friction differs by 0.04.
 Rendered on the RTX 3050 (Vulkan Forward+, 1600×900, scripted driver, 600 frames): **16.84 ms average (59.4 fps,
 vsync-limited)**. Max frame 133 ms, a one-off hitch while shaders and textures load. Physics including the ray and shape
 queries costs 95 µs per step (0.32 ms per frame).
+
+## 15. Respawn, rigid-body impacts, racing line (2026-10-20)
+
+Unit tests: `VehicleDynamics.Tests` **122/122** (6 new), `GameLogic.Tests` **11/11**. Self-test **39/39** (Monaco 10).
+
+| Test | Result |
+|---|---|
+| Centred head-on impact (15 m/s, e = 0.25) | v' = 3.75 m/s = e·v, yaw rate 0 |
+| Front-left corner head-on (15 m/s) | r' = +3.61 rad/s (car yaws left); front-right mirrors it exactly; contact-point normal velocity after = −e · before |
+| Glancing scrape (25 m/s, 2 m/s into the wall, front-left corner) | wall friction: V' 24.71 vs 25.03 m/s without friction; r' −1.07 vs −1.14 rad/s |
+| 20,000 random contacts (any normal, point, velocity, spin, e, μ_w) | kinetic energy never increases (worst relative change 6.7e-16); the contact point never keeps approaching |
+| Spinning car: rotational → translational transfer | accepted by `ApplyCollision`; an energy-increasing result is rejected |
+| Angled oval impact at 30°, 10 s pressing (GameLogic) | 2 separate impacts (the rear swings in), 0 on consecutive steps, energy never increases, CG ≥ 0.84 m from the wall |
+| Reference lap, Oval (game parameters) | arc speed = √(0.85 μ g R) exactly; throttle out of the turns, braking from s = 352 m; 43.0 s; heavier car with less grip brakes no later |
+| Respawn on Monaco | car moved to the highest point (s = 920 m, ground 24.98 m), then restart: body at −14.15 m = ground under the grid (before the fix the ground search could not reach it); physics ground found on the next steps |
+| Racing line on Monaco | 1644 points, 72 zone changes; accelerate 77 %, coast 5 %, brake 18 %; reference lap 139.8 s. Sainte-Dévote braking 138 → 66 km/h, hairpin ≈ 40 km/h, tunnel exit 143 km/h. |
+| Mesh walls with rigid-body impacts | 6 impulses, 0 consecutive, no tunnelling; largest yaw-rate change 2.28 rad/s |
+
+The barrier checks on the procedural tracks now report a larger loss of forward speed at the first impact (Oval
+20.9 → 6.2 m/s v_x, previously 14.5). The rotation turns part of the velocity sideways, and the wall friction removes
+more. All barrier invariants still hold: impulses only on contact entry, no gain in energy, no tunnelling.

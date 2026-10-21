@@ -123,7 +123,8 @@ So what you see is what you hit.
 |---|---|---|
 | Surface (E2) | `BeforeStep` → `TrackGeometry.SurfaceAt(CG)` | One surface for the whole car, evaluated at the CG. model.m has a single μ, and per-wheel contact is not modelled. |
 | Barrier detection | `CollisionManager.AfterStep` → `BarrierContact.Check` on the 3.76 × 1.68 m body footprint (measured from the JCW model's shell without mirrors, centre 0.261 m behind the CG) | Analytic, deterministic, per physics step. No Godot physics is involved in the car's motion. |
-| Response (E3) | First step of a contact: `CollisionResponse.Resolve` (restitution e, tangential loss k_t, yaw kick ≤ maxYawKick). While latched: `SustainedContact.Resolve`. Both applied via `ApplyCollision`. | One impulse per contact (`ContactLatch`); a new impulse only after separation. Speed can never increase. |
+| Response (E3, E4 model) | `RigidBodyImpact.Resolve` at the contact point: restitution + wall friction + yaw-rate change (vehicle_model §19). One bouncing impulse per contact (latch, bounce threshold on the contact-point normal speed), then the e = 0 version while latched. |
+| Response (E3, E1 model) | First step of a contact: `CollisionResponse.Resolve` (restitution e, tangential loss k_t, yaw kick ≤ maxYawKick). While latched: `SustainedContact.Resolve`. Both applied via `ApplyCollision`. | One impulse per contact (`ContactLatch`); a new impulse only after separation. Speed can never increase. |
 | Effects | `SimulationManager.OnImpact` → sparks, camera shake, `EngineSynth.TriggerImpact`, telemetry event `impact:<severity>`, lap invalidated | Cosmetic only. |
 | Godot collision shapes | `StaticBody3D` with the barrier faces (layer 2) | Used only by the chase camera's ray query, which keeps the camera in front of walls. |
 | Recovery | `RecoverToTrack`: explicit reset at rest on the nearest centreline point, engine damage kept, lap invalid | The model has no reverse gear, so a head-on stop needs this. |
@@ -143,12 +144,26 @@ So what you see is what you hit.
 | Ground, surface, grade | `BeforeStep` → `MeshTrack.Sample`: 3 wheel rays (front axle centre, rear left, rear right) and a CG ray against layers 3–4. Gives height, normal, grade (→ `RoadGrade`, E6) and surface key → `surfaces.ini` friction (→ `SurfaceGrip`). Kerb wins if it lies on or above the tarmac (−0.15 m). A wheel off the mesh takes the mean height of the others. A CG ray that misses with all wheels on ground is a mesh seam (TARMAC); otherwise OFFTRACK. |
 | Walls | `CollisionManager(MeshTrack.WallContact)`: footprint box (3.76 × 1.68 × 1.0 m, 0.7 m above the ground) `CollideShape` against layer 2 → `BarrierContactResult` → the same E3 response as on procedural tracks. |
 | Rendering | `VehicleController.GroundPose` lifts and tilts the body onto the ground at the interpolated pose. This is a read-only query, so the physics does not depend on the frame rate (verified bit-identical at 30/60/144 fps). |
+| Teleports | `VehicleController.GroundSnap` → `MeshTrack.SnapToGround`: a full-height `RayCast3D` from above the track's bounds down to below them, against tarmac/kerb. It places the car and re-centres the per-step ground search, so restart and recover never float or sink. |
 | Start/finish | `Area3D` (box across the gate, mask layer 5) detects `Vehicle.tscn`'s `TriggerVolume` → telemetry event `sf_gate:lap=N`. `LapTimer` (step-exact) is authoritative. |
 
 The visual GLB is never queried by physics. Its import (`tools/track_post_import.gd`) strips any collision, turns off
 shadows on nodes tagged `__ns` (transparent, foliage, fences, small props), applies visibility ranges (`__vr<m>`) to
 small props, and assigns the converted `materials/*.tres`. Godot generates LODs and compresses the meshes. The physics
 OBJ imports uncompressed (16-bit position quantisation over a 1.5 km box would be about 2 cm).
+
+### 4.2 Racing line (driver aid)
+
+`SimulationManager.BuildRacingLine` runs on every track load and setup change. `ReferenceLap.Compute` (core,
+vehicle_model §20) produces the profile, and `RacingLine` (a `MeshInstance3D`) draws it:
+- a 0.55 m ribbon, sampled every 1 m, 6 cm above the collision surface;
+- unshaded, vertex-coloured, no shadows;
+- zone colours blended over ±3 m.
+
+On mesh tracks the line is the AC racing line and follows the ground: each point searches around the previous height,
+so the tunnel finds the road, not the roof above it. The grade along it feeds the profile. On procedural tracks it is
+the centreline at y = 0. Toggle: L / D-pad up (`GameSession.RacingLineVisible`). It is a single draw call, about 6.6k
+triangles on Monaco.
 
 ## 5. Telemetry and configuration
 
@@ -200,7 +215,7 @@ VehicleDynamicsSimulator/
 ├── scripts/
 │   ├── simulation/  SimulationManager (hooks, reset/recover, GameSession), TelemetryService
 │   ├── vehicle/     VehicleController (core owner, inputs, interpolation), VehicleVisuals, CollisionManager, InputSetup
-│   ├── track/       TrackManager, TrackMeshBuilder, TrackScenery, MeshTrack (converted tracks)
+│   ├── track/       TrackManager, TrackMeshBuilder, TrackScenery, MeshTrack (converted tracks), RacingLine
 │   ├── race/        LapTimer
 │   ├── camera/      ChaseCamera (chase / bonnet / cockpit, barrier ray, shake)
 │   ├── dynamics/    VehicleModelAdapter (model ↔ Godot)

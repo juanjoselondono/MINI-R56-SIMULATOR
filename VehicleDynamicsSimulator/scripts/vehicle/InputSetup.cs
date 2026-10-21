@@ -16,6 +16,7 @@ public static class InputSetup
     public const string ToggleCamera = "toggle_camera";
     public const string ToggleAutoShift = "toggle_autoshift";
     public const string ToggleHeadlights = "toggle_headlights";
+    public const string ToggleRacingLine = "toggle_racing_line";
     public const string Recover = "recover_to_track";
     public const string ToggleSetup = "toggle_setup_panel";
     public const string ToggleTelemetry = "toggle_telemetry_panel";
@@ -37,6 +38,7 @@ public static class InputSetup
         Add(ToggleCamera, Key(Godot.Key.C), Button(JoyButton.Y));
         Add(ToggleAutoShift, Key(Godot.Key.T));
         Add(ToggleHeadlights, Key(Godot.Key.H));
+        Add(ToggleRacingLine, Key(Godot.Key.L), Button(JoyButton.DpadUp));
         Add(Recover, Key(Godot.Key.Backspace), Button(JoyButton.B));
         Add(ToggleSetup, Key(Godot.Key.Tab));
         Add(ToggleTelemetry, Key(Godot.Key.F2));

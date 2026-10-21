@@ -75,6 +75,11 @@ public sealed class VehicleParameters
     public double GripUtilization { get; set; } = 1.0;
     /// <summary>E3 collision restitution e.</summary>
     public double CollisionRestitution { get; set; } = 0.25;
+    /// <summary>
+    /// E3 rigid-body form (E4 model): Coulomb friction coefficient between body and wall, bounding the tangential
+    /// impulse to μ_w · j_n. PROVISIONAL estimate for painted steel/concrete against a car body (0.3–0.5).
+    /// </summary>
+    public double CollisionWallFriction { get; set; } = 0.4;
     /// <summary>E3 tangential friction loss k_t.</summary>
     public double CollisionFrictionLoss { get; set; } = 0.15;
     /// <summary>E3 maximum heading change per impact [rad].</summary>
@@ -284,6 +289,7 @@ public sealed class VehicleParameters
         R(nameof(GripUtilization), GripUtilization, 0.1, 1.5);
         R(nameof(CollisionRestitution), CollisionRestitution, 0, 1);
         R(nameof(CollisionFrictionLoss), CollisionFrictionLoss, 0, 1);
+        R(nameof(CollisionWallFriction), CollisionWallFriction, 0, 1.5);
         R(nameof(CollisionMaxYawKick), CollisionMaxYawKick, 0, Math.PI);
         R(nameof(CollisionBounceThreshold), CollisionBounceThreshold, 0, 10);
         if (SurfaceGripFactor is null || SurfaceGripFactor.Length != 3) e.Add("SurfaceGripFactor must have 3 entries [asphalt, curb, grass]");

@@ -163,8 +163,11 @@ public class CollisionAndDrivingTests
     private readonly ITestOutputHelper _out;
     public CollisionAndDrivingTests(ITestOutputHelper o) => _out = o;
 
+    private static double Energy(Dyn d, VehicleParameters p)
+        => 0.5 * p.Mass * (d.State.V * d.State.V + d.State.Vy * d.State.Vy) + 0.5 * p.YawInertia * d.State.YawRate * d.State.YawRate;
+
     [Fact]
-    public void AngledImpact_OneImpulse_SpeedNeverIncreases_NoTunnelling()
+    public void AngledImpact_EnergyNeverIncreases_NoTunnelling()
     {
         var t = TrackLibrary.Oval();
         var p = new VehicleParameters();
@@ -181,15 +184,19 @@ public class CollisionAndDrivingTests
         {
             dyn.Step(u, p.Dt);
             double vStep = dyn.State.V;
+            double eStep = Energy(dyn, p);
             int before = impacts;
             cm.AfterStep(dyn);
-            Assert.True(dyn.State.V <= vStep + 1e-9, "collision response increased speed");
+            Assert.True(Energy(dyn, p) <= eStep * (1 + 1e-9) + 1e-9, "collision response increased kinetic energy");
             if (impacts > before) { vBefore = vStep; vAfter = dyn.State.V; }
             var pr = t.Project(dyn.State.X, dyn.State.Y);
             maxLatBeyond = Math.Max(maxLatBeyond, -pr.Lateral - t.BarrierOffsetRightAt(pr.S));
         }
-        _out.WriteLine($"impacts {impacts}, impact speed {vBefore:F2} -> {vAfter:F2} m/s, worst CG beyond wall {maxLatBeyond:F3} m, final V {dyn.State.V:F2} m/s");
-        Assert.Equal(1, impacts);
+        _out.WriteLine($"impacts {impacts}, impact speed {vBefore:F2} -> {vAfter:F2} m/s, worst CG beyond wall {maxLatBeyond:F3} m, final V {dyn.State.V:F2} m/s, consecutive {cm.ConsecutiveImpulses}");
+        // E4 rigid-body response: the first hit yaws the car, so the other end may swing into the wall too (a second,
+        // separate impact). Never an impulse on consecutive steps.
+        Assert.InRange(impacts, 1, 4);
+        Assert.Equal(0, cm.ConsecutiveImpulses);
         Assert.True(vAfter < vBefore);
         Assert.True(maxLatBeyond < -0.5, "the CG must stay on the track side of the wall");
     }

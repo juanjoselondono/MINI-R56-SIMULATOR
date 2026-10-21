@@ -357,10 +357,50 @@ public partial class SelfTest : Node
         Check("elevation + grade (E6)", maxH - minH > 5 && maxGrade > 0.02 && maxGrade < 0.3,
             $"ground height {F(minH, "0.0")}…{F(maxH, "0.0")} m, max |grade| {F(maxGrade * 100, "0.0")} %");
 
+        // Respawn regression: put the car at the highest point of the lap (Casino, ~40 m above the grid), then restart.
+        // The ground search used to follow the last height, so the grid was out of reach and the car floated.
+        double sHigh = 0; float hHigh = float.MinValue;
+        for (double sp = 0; sp < line.Length; sp += 20)
+        {
+            var q = line.Pose(sp);
+            if (mesh.ProbeGroundHeight(q.X, q.Y) is { } hp && hp > hHigh) { hHigh = hp; sHigh = sp; }
+        }
+        var top = line.Pose(sHigh);
+        V.ResetVehicleAt(top.X, top.Y, top.Psi);
+        await Frames(3);
+        float yTop = V.GlobalPosition.Y;
+        _sim.RestartSimulation();
+        await Frames(1);
+        float yGrid = V.GlobalPosition.Y;
+        var gGrid = mesh.Sample(sx, sy, spsi, V.Parameters, updateHint: false);
+        V.SetPaused(false);
+        await Frames(3);
+        bool physicsGround = _sim.CurrentGround is { Hit: true } cg && Math.Abs(cg.Height - gGrid.Height) < 0.3;
+        Check("respawn snaps to the ground (RayCast3D)", Math.Abs(yTop - hHigh) < 0.3 && Math.Abs(yGrid - gGrid.Height) < 0.05 && physicsGround,
+            $"high point s={F(sHigh, "0")} m: body {F(yTop, "0.00")} / ground {F(hHigh, "0.00")} m; after restart: body {F(yGrid, "0.00")} / ground {F(gGrid.Height, "0.00")} m; physics ground found={physicsGround}");
+
+        // Racing line: reference lap with all three zones, rebuilt for this track.
+        var rl = _sim.RacingLine;
+        var (acc, coast, brk) = rl.ZoneShares();
+        int switches = 0;
+        for (int i = 0; i < rl.Points.Length; i++) if (rl.Points[i].Zone != rl.Points[(i + 1) % rl.Points.Length].Zone) switches++;
+        if (OS.GetEnvironment("SELFTEST_DUMP_PROFILE") is { Length: > 0 } dump)
+            File.WriteAllLines(dump, rl.Points.Select(x => FormattableString.Invariant($"{x.S:F1},{x.V:F2},{x.Throttle:F2},{x.Brake:F2},{x.Zone},{x.Curvature:F4}")));
+        Check("racing line (reference lap zones)", rl.Points.Length > 100 && acc > 0.05 && coast > 0.02 && brk > 0.03 && rl.LapTime > 60 && rl.LapTime < 200
+                && rl.Mesh != null && rl.Mesh.GetSurfaceCount() == 1,
+            $"{rl.Points.Length} points, {switches} zone changes; accelerate {F(acc * 100, "0")} %, coast {F(coast * 100, "0")} %, brake {F(brk * 100, "0")} %; reference lap {F(rl.LapTime, "0.0")} s (quasi-steady estimate)");
+
         // Wall: steer into the right-hand side for 10 s; contacts from the physics mesh, never through a wall.
+        _sim.RestartSimulation();
+        V.AutoShift = true;
+        V.Autopilot = vc => driver.Drive(vc.Dynamics.State, vc.Dynamics.Outputs, vc.Parameters);
+        await Until(() => D.State.V > 15, 20);
+        double maxYawKick = 0;
+        void OnWallImpact(ImpactEvent _) => maxYawKick = Math.Max(maxYawKick, Math.Abs(_sim.Collisions.LastYawRateChange));
         driver.TargetLateral = -30;
         driver.MaxSpeed = 20;
         var cm = _sim.Collisions;
+        cm.Impact += OnWallImpact;
         int i0 = cm.ImpulseCount, c0 = cm.ConsecutiveImpulses;
         bool tunnelled = false;
         var space = mesh.GetWorld3D().DirectSpaceState;
@@ -374,9 +414,10 @@ public partial class SelfTest : Node
             var to = Simulator.Dynamics.VehicleModelAdapter.ToGodotPosition(D.State.X, D.State.Y, h);
             if (space.IntersectRay(PhysicsRayQueryParameters3D.Create(from, to, TrackManager.BarrierCollisionLayer)).Count > 0) tunnelled = true;
         }
+        cm.Impact -= OnWallImpact;
         int imps = cm.ImpulseCount - i0;
-        Check("mesh wall contact (E3)", imps >= 1 && cm.ConsecutiveImpulses == c0 && !tunnelled,
-            $"{imps} impulse(s), consecutive {cm.ConsecutiveImpulses - c0}, CG crossed a wall: {tunnelled}");
+        Check("mesh wall contact (E3 rigid body)", imps >= 1 && cm.ConsecutiveImpulses == c0 && !tunnelled && maxYawKick > 0.05,
+            $"{imps} impulse(s), consecutive {cm.ConsecutiveImpulses - c0}, CG crossed a wall: {tunnelled}; largest yaw-rate change from an impact {F(maxYawKick, "0.00")} rad/s");
         V.Autopilot = null;
         V.AutoShift = false;
         _sim.RestartSimulation();

@@ -44,6 +44,7 @@ public partial class MeshTrack : Node3D
     private BoxShape3D _footprint = new();
     private PhysicsShapeQueryParameters3D _wallQuery = new();
     private float _groundHeight;
+    private RayCast3D _probe = null!;
 
     public void Load()
     {
@@ -74,6 +75,44 @@ public partial class MeshTrack : Node3D
         BuildCollision();
         BuildStartFinishArea();
         if (GetNodeOrNull<Node3D>("Visual") is { } visual) Bounds = ComputeBounds(visual);
+        _probe = new RayCast3D { Name = "GroundProbe", Enabled = false, CollisionMask = TarmacLayer | KerbLayer, HitBackFaces = true };
+        AddChild(_probe);
+    }
+
+    /// <summary>
+    /// Vertical RayCast3D down the whole height of the track (from above the highest geometry to below the lowest)
+    /// against the tarmac/kerb collision mesh: elevation of the highest drivable surface at (x, y), or null if the
+    /// column has none. Used for spawns and resets, where the previous height says nothing about the new position.
+    /// </summary>
+    public float? ProbeGroundHeight(double x, double y)
+    {
+        float top = Bounds.End.Y + 50f, bottom = Bounds.Position.Y - 50f;
+        var at = VehicleModelAdapter.ToGodotPosition(x, y, top);
+        _probe.GlobalPosition = at;
+        _probe.TargetPosition = new Vector3(0, bottom - top, 0);
+        _probe.ForceRaycastUpdate();
+        return _probe.IsColliding() ? _probe.GetCollisionPoint().Y : null;
+    }
+
+    /// <summary>
+    /// Ground elevation at (x, y) searched around <paramref name="hint"/> (+4 / −12 m), so a line that runs through the
+    /// tunnel finds the road, not the roof; falls back to the full-height probe. For walking along a line.
+    /// </summary>
+    public float? GroundHeightNear(double x, double y, float hint)
+    {
+        var hit = Ray(VehicleModelAdapter.ToGodotPosition(x, y, hint + 4f), VehicleModelAdapter.ToGodotPosition(x, y, hint - 12f), TarmacLayer | KerbLayer);
+        return hit.Count > 0 ? ((Vector3)hit["position"]).Y : ProbeGroundHeight(x, y);
+    }
+
+    /// <summary>
+    /// Snaps the ground tracking to (x, y) after a teleport (restart, recover): the per-step rays then search around
+    /// the probed elevation. Returns that elevation.
+    /// </summary>
+    public float? SnapToGround(double x, double y)
+    {
+        var h = ProbeGroundHeight(x, y);
+        if (h is { } v) _groundHeight = v;
+        return h;
     }
 
     private static Vector3 ToVector(Variant v)
@@ -156,6 +195,15 @@ public partial class MeshTrack : Node3D
         const uint ground = TarmacLayer | KerbLayer;
         float? hFront = Height(lf, 0, ground), hRearL = Height(-lr, half, ground), hRearR = Height(-lr, -half, ground);
         var found = new[] { hFront, hRearL, hRearR }.Where(h => h.HasValue).Select(h => h!.Value).ToArray();
+        if (found.Length == 0 && ProbeGroundHeight(x, y) is { } reacquired && Math.Abs(reacquired - _groundHeight) > 1f)
+        {
+            // Ground lost by the search window (it follows the last height): re-acquire from a full-height probe.
+            float saved = _groundHeight;
+            _groundHeight = reacquired;
+            var retry = Sample(x, y, psi, p, updateHint);
+            if (!updateHint) _groundHeight = saved;
+            return retry;
+        }
         if (found.Length == 0)
             return new GroundSample(false, _groundHeight, Vector3.Up, Surface.Asphalt, "OFFTRACK", Friction.GetValueOrDefault("OFFTRACK", 1), 0);
         float fill = found.Average();

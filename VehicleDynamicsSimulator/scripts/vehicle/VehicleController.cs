@@ -67,6 +67,12 @@ public partial class VehicleController : Node3D
     /// only: the body is lifted and tilted onto the ground; the planar dynamics are unchanged (grade enters via inputs).
     /// </summary>
     public Func<double, double, double, (float Height, Vector3 Up)?>? GroundPose { get; set; }
+    /// <summary>
+    /// Ground elevation for a teleport (spawn, restart, recover) at a model-frame position, from a vertical ray against
+    /// the track's collision mesh; null = flat track (y = 0). Called before the car is placed, so it never floats.
+    /// </summary>
+    public Func<double, double, float?>? GroundSnap { get; set; }
+    private float _lastGroundHeight;
     private SimulationRecorder? _recorder;
     public SimulationRecorder? Recorder
     {
@@ -122,6 +128,7 @@ public partial class VehicleController : Node3D
     public void ResetVehicleAt(double x, double y, double psi, bool keepEngineDamage = false)
     {
         bool paused = Loop?.Clock.Paused ?? false;
+        if (GroundSnap?.Invoke(x, y) is { } h) _lastGroundHeight = h;
         var rest = VehicleState.AtRest(x, y, psi);
         if (keepEngineDamage && Dynamics != null) rest.EngineBlown = Dynamics.State.EngineBlown;
         Dynamics = new Dyn(Parameters, rest);
@@ -259,10 +266,16 @@ public partial class VehicleController : Node3D
     {
         var (x, y, psi) = Loop.InterpolatedPose();
         var transform = VehicleModelAdapter.ToGodotTransform(x, y, psi);
-        if (GroundPose?.Invoke(x, y, psi) is { } ground)
+        if (GroundPose != null)
         {
-            var tilt = new Basis(new Quaternion(Vector3.Up, ground.Up.Normalized()));
-            transform = new Transform3D(tilt * transform.Basis, transform.Origin with { Y = ground.Height });
+            // Mesh track: on the ground under the car; if a query ever misses, hold the last ground height.
+            if (GroundPose(x, y, psi) is { } ground)
+            {
+                _lastGroundHeight = ground.Height;
+                var tilt = new Basis(new Quaternion(Vector3.Up, ground.Up.Normalized()));
+                transform = new Transform3D(tilt * transform.Basis, transform.Origin);
+            }
+            transform.Origin = transform.Origin with { Y = _lastGroundHeight };
         }
         GlobalTransform = transform;
 

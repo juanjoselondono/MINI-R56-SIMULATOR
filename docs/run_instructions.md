@@ -105,6 +105,7 @@ The car starts at rest on the start/finish line. The lap clock starts when the c
 | P | Start | pause / resume the simulation clock (shift presses while paused are ignored) |
 | C | Y | cycle camera: chase → bonnet → cockpit (driver's eye, through the glass) |
 | H | – | headlights |
+| L | D-pad up | racing line on/off: green = accelerate, yellow = coast/transition, red = heavy braking (reference lap for the current setup) |
 | F5 | X | start / stop telemetry recording |
 | Tab | – | vehicle setup panel |
 | F2 | – | telemetry dashboard |
@@ -165,9 +166,9 @@ failure) are in the `event` column.
 These go after `--`. They skip the main menu.
 
 ```bash
-# In-game self-test on all tracks (37 checks), deterministic; exit code 0 = all pass
+# In-game self-test on all tracks (39 checks), deterministic; exit code 0 = all pass
 $GODOT --headless --fixed-fps 60 --path . -- --selftest
-# Only the Monaco suite (8 checks), e.g. after re-converting the track
+# Only the Monaco suite (10 checks), e.g. after re-converting the track
 $GODOT --headless --fixed-fps 60 --path . -- --selftest --selftest-only=Monaco
 
 # Full throttle with auto-shift for N simulated seconds; prints the physical state and quits.

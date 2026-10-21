@@ -126,9 +126,10 @@ public static class ParameterCatalog
         Add(e2, "Grass rolling factor", "–", 1, 15, 0.1, "Rolling-coefficient multiplier on grass.", ParamSource.ExtE2, p => p.SurfaceRollingFactor[2], (p, v) => p.SurfaceRollingFactor[2] = v);
 
         const string e3 = "Barrier impacts (extension E3)";
-        Add(e3, "Restitution e", "–", 0, 0.8, 0.01, "Normal velocity after impact = −e · before.", ParamSource.ExtE3, p => p.CollisionRestitution, (p, v) => p.CollisionRestitution = v);
-        Add(e3, "Tangential loss k_t", "–", 0, 0.6, 0.01, "Scrape loss of the tangential velocity, proportional to impact severity.", ParamSource.ExtE3, p => p.CollisionFrictionLoss, (p, v) => p.CollisionFrictionLoss = v);
-        Add(e3, "Max yaw kick", "rad", 0, 1.2, 0.01, "Largest heading change one impact may cause.", ParamSource.ExtE3, p => p.CollisionMaxYawKick, (p, v) => p.CollisionMaxYawKick = v);
+        Add(e3, "Restitution e", "–", 0, 0.8, 0.01, "Contact-point normal velocity after impact = −e · before (E4: rigid-body impulse, off-centre hits yaw the car).", ParamSource.ExtE3, p => p.CollisionRestitution, (p, v) => p.CollisionRestitution = v);
+        Add(e3, "Wall friction μ_w", "–", 0, 1.2, 0.01, "Body-on-wall Coulomb friction (E4 rigid-body impact): limits the tangential impulse and so the scrape yaw moment.", ParamSource.ExtE3, p => p.CollisionWallFriction, (p, v) => p.CollisionWallFriction = v);
+        Add(e3, "Tangential loss k_t", "–", 0, 0.6, 0.01, "E1 only: scrape loss of the tangential velocity, proportional to impact severity.", ParamSource.ExtE3, p => p.CollisionFrictionLoss, (p, v) => p.CollisionFrictionLoss = v);
+        Add(e3, "Max yaw kick", "rad", 0, 1.2, 0.01, "E1 only: largest heading change one impact may cause (E4 gets yaw from the impulse).", ParamSource.ExtE3, p => p.CollisionMaxYawKick, (p, v) => p.CollisionMaxYawKick = v);
         Add(e3, "Bounce threshold", "m/s", 0, 3, 0.05, "Approach speeds below this are sliding contact (no bounce, no impact effects).", ParamSource.ExtE3, p => p.CollisionBounceThreshold, (p, v) => p.CollisionBounceThreshold = v);
 
         const string sim = "Numerics";

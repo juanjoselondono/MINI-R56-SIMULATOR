@@ -15,11 +15,12 @@ public readonly record struct ImpactEvent(double Time, double Severity, double P
 public delegate BarrierContactResult? BarrierContactSource(double x, double y, double psi, double halfLength, double halfWidth);
 
 /// <summary>
-/// Barrier collisions, run once per physics step (never per render frame). Detection is analytic against the
-/// track's barrier walls (core <see cref="BarrierContact"/>); the response is the documented extension E3:
-/// one impulse on contact entry (<see cref="CollisionResponse"/>, latched by <see cref="ContactLatch"/>), then a
-/// dissipative non-penetration constraint while the contact lasts (<see cref="SustainedContact"/>). The result
-/// reaches the state only through <see cref="Dyn.ApplyCollision"/>.
+/// Barrier collisions, run once per physics step (never per render frame). Detection comes from a
+/// <see cref="BarrierContactSource"/> (analytic walls or the mesh track's wall query); the response is the documented
+/// extension E3. With the E4 dynamic model (default): a rigid-body impulse at the contact point with restitution and
+/// wall friction (<see cref="RigidBodyImpact"/>), one bouncing impulse per contact (<see cref="ContactLatch"/>), then the
+/// inelastic version while the contact lasts. With E1: the point-mass response (<see cref="CollisionResponse"/>,
+/// <see cref="SustainedContact"/>). The result reaches the state only through <see cref="Dyn.ApplyCollision"/>.
 /// </summary>
 public sealed class CollisionManager
 {
@@ -40,6 +41,8 @@ public sealed class CollisionManager
     /// <summary>Impact severity of the last step (|u_n| at entry, m/s), 0 if none.</summary>
     public double LastSeverity { get; private set; }
     public int ImpulseCount { get; private set; }
+    /// <summary>Yaw-rate change caused by the last contact response [rad/s] (rigid-body form only).</summary>
+    public double LastYawRateChange { get; private set; }
     /// <summary>Contact entries (step without contact followed by a step with contact).</summary>
     public int ContactEpisodes { get; private set; }
     /// <summary>Latch releases during a contact (the car moved away from the wall while still touching it).</summary>
@@ -82,7 +85,12 @@ public sealed class CollisionManager
         InContact = true;
 
         var p = dyn.Parameters;
-        // Speed and velocity angle of the CG (with E4 these include v_y, not just v_x).
+        if (dyn.Dynamic)
+        {
+            ResolveRigid(dyn, k);
+            return;
+        }
+        // E1 (no yaw-rate state): point-mass response at the geometric centre with a bounded heading kick.
         var input = new CollisionInput(cx, cy, s.Psi, dyn.VelocityAngle, dyn.Speed, k.NormalX, k.NormalY, k.Penetration,
             p.CollisionRestitution, p.CollisionFrictionLoss, p.CollisionMaxYawKick);
         bool wasLatched = _latch.Latched;
@@ -106,5 +114,39 @@ public sealed class CollisionManager
             Impact?.Invoke(new ImpactEvent(s.Time, r.Severity, k.PointX, k.PointY, k.NormalX, k.NormalY));
         }
         Scraping = r.SustainedContact && s.V > 1.0;
+    }
+
+    /// <summary>
+    /// E4: rigid-body impulse at the contact point (<see cref="RigidBodyImpact"/>), so off-centre hits change the yaw
+    /// rate. Latching and the bounce threshold use the contact point's normal speed; latched or slow contacts get the
+    /// inelastic (e = 0) version of the same impulse, which also carries wall friction while scraping.
+    /// </summary>
+    private void ResolveRigid(Dyn dyn, BarrierContactResult k)
+    {
+        var s = dyn.State;
+        var p = dyn.Parameters;
+        double c = Math.Cos(s.Psi), sn = Math.Sin(s.Psi);
+        var input = new RigidContactInput(s.X, s.Y, s.Psi, s.V * c - s.Vy * sn, s.V * sn + s.Vy * c, s.YawRate,
+            p.Mass, p.YawInertia, k.PointX, k.PointY, k.NormalX, k.NormalY, k.Penetration,
+            p.CollisionRestitution, p.CollisionWallFriction);
+        bool wasLatched = _latch.Latched;
+        double vn = RigidBodyImpact.ContactNormalSpeed(input, out _, out _);
+        bool impulse = _latch.Update(true, vn);
+        if (impulse && -vn < p.CollisionBounceThreshold) impulse = false;
+        if (wasLatched && !_latch.Latched) Rearms++;
+        if (impulse && _impulseLastStep) ConsecutiveImpulses++;
+        _impulseLastStep = impulse;
+
+        var r = RigidBodyImpact.Resolve(input, bounce: impulse);
+        double yawBefore = s.YawRate;
+        dyn.ApplyCollision(r);
+        LastYawRateChange = r.YawRate - yawBefore;
+        if (r.ImpulseApplied)
+        {
+            ImpulseCount++;
+            LastSeverity = r.Severity;
+            Impact?.Invoke(new ImpactEvent(s.Time, r.Severity, k.PointX, k.PointY, k.NormalX, k.NormalY));
+        }
+        Scraping = r.SustainedContact && dyn.Speed > 1.0;
     }
 }

@@ -19,6 +19,8 @@ public static class GameSession
     public static string TrackName { get; set; } = "Circuit";
     /// <summary>Optional configuration JSON (absolute path) to load at start.</summary>
     public static string? ConfigPath { get; set; }
+    /// <summary>Racing-line driver aid shown (L / D-pad up); kept across tracks and restarts.</summary>
+    public static bool RacingLineVisible { get; set; } = true;
 }
 
 /// <summary>
@@ -117,6 +119,7 @@ public partial class SimulationManager : Node
                 CurrentSurface = u.Surface;
                 return u;
             };
+            Vehicle.GroundSnap = (x, y) => mesh.SnapToGround(x, y);
             Vehicle.GroundPose = (x, y, psi) =>
                 mesh.Sample(x, y, psi, Vehicle.Parameters, updateHint: false) is { Hit: true } g ? (g.Height, g.Up) : null;
         }
@@ -131,6 +134,7 @@ public partial class SimulationManager : Node
                 return u;
             };
             Vehicle.GroundPose = null;
+            Vehicle.GroundSnap = null;
         }
         Vehicle.AfterStep = (d, u) =>
         {
@@ -150,9 +154,24 @@ public partial class SimulationManager : Node
         };
         Vehicle.TrackContext = _ => CurrentTrackSample();
 
+        BuildRacingLine();
         var (x, y, psi) = Track.SpawnPose;
         Vehicle.SetSpawn(x, y, psi);
         RestartSimulation();
+    }
+
+    /// <summary>Driver-aid racing line for the current track and vehicle parameters.</summary>
+    public RacingLine RacingLine { get; private set; } = null!;
+
+    private void BuildRacingLine()
+    {
+        if (RacingLine == null)
+        {
+            RacingLine = new RacingLine { Name = "RacingLine" };
+            AddChild(RacingLine);
+        }
+        RacingLine.Build(Track.Line, Vehicle.Parameters, Track.Mesh);
+        RacingLine.Visible = GameSession.RacingLineVisible;
     }
 
     private TrackSample CurrentTrackSample() => new()
@@ -230,6 +249,7 @@ public partial class SimulationManager : Node
         Vehicle.ApplyParameters(p);
         if (dtChanged && wasRecording) Telemetry.Start(Vehicle, Track.TrackName);
         Telemetry.AddEvent("parameters_applied");
+        BuildRacingLine();   // braking/acceleration zones follow the new setup
         Notify("Setup applied");
     }
 
@@ -262,6 +282,14 @@ public partial class SimulationManager : Node
         if (Input.IsActionJustPressed(InputSetup.ResetVehicle)) RestartSimulation();
         if (Input.IsActionJustPressed(InputSetup.Recover)) RecoverToTrack();
         if (Input.IsActionJustPressed(InputSetup.ToggleRecording)) ToggleRecording();
+        if (Input.IsActionJustPressed(InputSetup.ToggleRacingLine))
+        {
+            GameSession.RacingLineVisible = !GameSession.RacingLineVisible;
+            RacingLine.Visible = GameSession.RacingLineVisible;
+            Notify(GameSession.RacingLineVisible
+                ? FormattableString.Invariant($"Racing line on (reference lap {FormatTime(RacingLine.LapTime)}, quasi-steady estimate)")
+                : "Racing line off");
+        }
         if (Input.IsActionJustPressed(InputSetup.Menu)) GetTree().ChangeSceneToFile("res://scenes/MainMenu.tscn");
     }
 

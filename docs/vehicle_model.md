@@ -377,6 +377,8 @@ but unused), aerodynamic lift and wind, banking, kerbs and off-road surfaces, co
 | E5 | Physical launch clutch, §16 | user request 2026-10-20 (replaces S1 by default) |
 | C1 | Correction of model.m §7: grip limit on the tyre force, §17 | user-approved 2026-10-20 |
 | E6 | Per-step road grade and track-supplied surface friction, §18 | Monaco integration 2026-10-20 |
+| E3b | Rigid-body wall impact with restitution, wall friction and yaw (E4 model), §19 | user request 2026-10-20 |
+| RL | Reference lap for the racing-line aid (quasi-steady speed profile), §20 | user request 2026-10-20; driver aid, not physics |
 | S1 | (Optional since 2026-10-20: `LaunchModel = SeedRule`.) Clutch-slip launch: gear 1, wheel rpm < 3500, throttle > 0.1 → rpm = max(wheel, 1000 + throttle·2500) | monaco.html l. 209–215 |
 | S2 | Torque clamp rpm < 1000 → T(1000) | monaco.html `getTorque` |
 | S3 | Fuel cut rpm ≥ 6500 → T = 0; limiter flag for HUD/audio | monaco.html `getTorque` + l. 218–223 (rpm remap dropped) |
@@ -582,3 +584,55 @@ planar and has no lateral grade force.
 $\mu_{eff} = \mu \cdot \texttt{SurfaceGrip}$. Converted tracks set it to the `surfaces.ini` FRICTION of the surface
 under the CG (Monaco: TARMAC 0.99, KERB 0.95, OFFTRACK 0.95). 0 means "use the E2 factor of `Surface`"
 (`SurfaceGrip_OverridesSurfaceFactor`).
+
+## 19. E3b: rigid-body wall impact (E4 model)
+
+With the E4 model the car has a yaw-rate state, so a wall contact is resolved as a planar rigid body (mass $M$, yaw
+inertia $I_{zz}$) hitting a fixed wall at the contact point $P$. $P$ is the penetrating footprint corner (procedural
+tracks) or the shape-query contact point (mesh tracks).
+
+With $\mathbf r = P - CG$, the contact-point velocity is $\mathbf v_P = \mathbf v + \omega \times \mathbf r$. Write $n$
+for the wall normal and $t$ for the slip direction, $r_n = \mathbf r \times n$ and $r_t = \mathbf r \times t$. The velocity
+change per unit impulse is
+
+$$\Delta \mathbf v_P = K\,\mathbf j,\qquad K = \begin{pmatrix} \tfrac1M + \tfrac{r_n^2}{I_{zz}} & \tfrac{r_n r_t}{I_{zz}} \\ \tfrac{r_n r_t}{I_{zz}} & \tfrac1M + \tfrac{r_t^2}{I_{zz}} \end{pmatrix}.$$
+
+The targets are $v_n' = -e\,v_n$ (Newton restitution at the contact point) and $v_t' = 0$ (stick). If the sticking
+impulse leaves the friction cone $|j_t| \le \mu_w j_n$, the contact slides with $j_t = -\mu_w j_n$, and $j_n$ still meets
+the restitution target. Then $\Delta \mathbf v = \mathbf J/M$ and $\Delta\omega = (\mathbf r \times \mathbf J)/I_{zz}$. If
+Newton restitution with friction would add kinetic energy (a known corner case), the frictionless impulse is used
+instead, which cannot add energy for $e \le 1$.
+
+Effects:
+- A front-corner hit yaws the car away from the side that was stopped. Head-on at 15 m/s on the front-left corner:
+  $r' = 3.6$ rad/s, versus 0 for a centred hit.
+- Scraping along a wall brakes the car and adds a moment through $\mu_w$.
+- The other end of the car may swing into the wall as a second, separate impact.
+
+While a contact is latched, or the approach is slower than the bounce threshold, the same impulse is applied with
+$e = 0$ (no bounce and no impact event). That gives sustained sliding contact with friction.
+
+| Parameter | Value | Source |
+|---|---|---|
+| $e$ (`CollisionRestitution`) | 0.25 | E3 (unchanged), now applied at the contact point |
+| $\mu_w$ (`CollisionWallFriction`) | 0.4 | provisional estimate (painted steel/concrete against a car body, 0.3–0.5) |
+| $I_{zz}$ (`YawInertia`) | 1100 kg·m² | user-supplied (E4) |
+
+E1 (no yaw state) keeps the point-mass response of §12.
+
+## 20. Reference lap for the racing-line aid (driver aid, not physics)
+
+`ReferenceLap.Compute` is a quasi-steady speed profile along the track line, sampled every 2 m:
+1. **Corner limit:** $v_c = \sqrt{0.85\,\mu g\cos\theta/|\kappa|}$, where $|\kappa|$ is averaged over ±6 m (measured lines have point jitter).
+2. **Forward pass:** the core's own full-throttle acceleration at each speed, with gear from the §11 rule, $F_{x,max}$,
+   drag, rolling and grade (E6). It is scaled by the point-mass friction circle $\sqrt{1-(a_y/\mu g)^2}$.
+3. **Backward pass:** 90 % of the core's full-brake deceleration (S7 plus resistances), same friction circle.
+
+The required acceleration $a_{req} = v\,dv/ds$ is placed between the core's coasting and full-throttle (or full-brake)
+accelerations at that speed. That gives the reference throttle and brake:
+- **Red (brake):** brake ≥ 0.3.
+- **Green (accelerate):** throttle ≥ 0.5 and $a_{req} > 0.3$ m/s².
+- **Yellow:** everything else (lift, part throttle holding a corner speed, light or trail braking).
+
+The lateral side is a point mass: no tyre slip and no load transfer. The lap time is therefore an estimate, not a
+validated result (Monaco: 139.8 s; Oval: 43.0 s with the game parameters).
