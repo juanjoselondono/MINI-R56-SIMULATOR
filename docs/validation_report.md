@@ -506,3 +506,64 @@ smoothly (no sign flips), so this is physical, not numerical.
 
 The F710 itself was not connected in this environment. The gamepad checks inject the events a standard-layout pad
 produces, so the device-specific mapping (XInput mode) remains to be confirmed on the real pad.
+
+## 13. Handling tuning and the spin fix (2026-10-20, second pass)
+
+### 13.1 Spin glitch: cause
+
+The glitch was a bug in the first E4 version, not a breakdown of the tyre curve. There were three mechanisms:
+- **Clamp:** $v_x$ was clamped at 0 (no reverse) even while the body slid sideways.
+- **Reset and snap:** the low-speed code reset $v_y = r = 0$ whenever $v_x \le 0$, and below 4 m/s of $v_x$ it pulled
+  $v_y$ and $r$ to kinematic values by a fixed fraction per step. A spinning car therefore lost its sideways speed
+  within a few steps, which measured about 60 m/s².
+- **Jitter:** the load transfer used $\dot v_x$, including the $v_y r$ term that swings in a spin, and slip angles had
+  the form $\delta - \operatorname{atan2}(\dots, v_x)$, which is discontinuous for backward-rolling wheels.
+
+The fixes are listed in `docs/vehicle_model.md` §15.
+
+### 13.2 Spin regression test
+
+Car at 22 m/s with r = 2.5 rad/s and v_y = −3 m/s, held at δ = 0.1 rad for 8 s (`Spin_SlidesSmoothlyWithoutSnapping`):
+
+| Input | max \|β\| | min v_x | speed 0 → 0.5 s → 8 s | max \|ΔU\| per step | max \|Δr\| per step |
+|---|---|---|---|---|---|
+| none | 3.11 rad | −14.4 m/s | 22.2 → 19.2 → 0.4 m/s | 0.047 m/s | 0.058 rad/s |
+| full throttle | 3.14 rad | −11.1 m/s | 22.2 → 20.1 → 0.9 m/s | 0.047 m/s | 0.034 rad/s |
+| 60 % brake | 3.12 rad | −13.3 m/s | 22.2 → 18.1 → 0 m/s | 0.047 m/s | 0.053 rad/s |
+
+A speed change of 0.047 m/s per 5 ms step is 9.4 m/s², i.e. friction deceleration. Before the fix the same test showed
+steps of 0.36 m/s, about 72 m/s².
+
+### 13.3 Handling balance
+
+Steady 0.7 g corner at 20 m/s, then 2 s of the action with the steering held (game defaults, 1150 kg):
+
+| Tuning | Action | max \|β\| | Result |
+|---|---|---|---|
+| before (μ 0.9, C 100/75 kN/rad, no load sensitivity) | lift-off | 1.9° | rear saturated |
+| before | brake 50 % | 157° | **spin** |
+| before | brake 100 % | 124° | **spin** |
+| now | lift-off | 0.2° | stable |
+| now | brake 50 % | 1.1° | stable |
+| now | brake 100 % | 2.0° | front-limited (understeer) |
+
+In slow ramp steers at 22 m/s (`LimitBalance_IsUndersteer`), both with speed held and coasting, the front axle
+saturates first. Peak lateral acceleration is 0.92 / 0.93 g. In the linear range the understeer gradient is
+K = 5.66e-3 s²/m at 1420 kg (yaw gain matches the linear bicycle within 0.25 %).
+
+### 13.4 Results after the change
+
+- **Tests:** core 112/112 and game logic 11/11.
+- **In-game self-test:** 29/29.
+  - Scripted laps: Oval 60.20 s and Circuit 111.61 s (were 62.16 s and 114.97 s).
+  - 0–50 km/h: 3.90 s.
+- **MATLAB chain:** golden max rel err 0 for S01–S09, interactive R1 errors identical to before, and `compare_results`
+  18/18 PASS.
+
+### 13.5 Caveats
+
+The tuning values are estimates, not measurements of a Mini: C_αf and C_αr, the load sensitivity k, the front
+roll-stiffness share, and μ = 1.05. Spins now need provocation, such as a flick or arriving with yaw already built up.
+Braking in a corner no longer rotates the car. If you want some lift-off adjustability back, lower C_αr or the front
+roll-stiffness share in the setup panel.
+

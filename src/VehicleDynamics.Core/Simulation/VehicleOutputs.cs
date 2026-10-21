@@ -24,8 +24,10 @@ public struct VehicleOutputs
     public double FBrake;
     public double FEngineBrake;
     public double MassEquivalent;
-    /// <summary>Longitudinal acceleration of the chassis dv_x/dt [m/s²].</summary>
+    /// <summary>Longitudinal specific force of the chassis (accelerometer reading) [m/s²]; = dv_x/dt in a straight line.</summary>
     public double Ax;
+    /// <summary>dv_x/dt in the body frame [m/s²] (E4: Ax + v_y r).</summary>
+    public double VxDot;
     /// <summary>Lateral (centripetal) acceleration [m/s²]: E4 (F_yf cos δ + F_yr)/M, E1 V·r.</summary>
     public double Ay;
     public double YawRate;

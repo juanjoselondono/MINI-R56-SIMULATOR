@@ -66,7 +66,7 @@ public partial class EngineAudio : AudioStreamPlayer
         {
             Rpm = s.EngineRpm,
             Throttle = _sim.Vehicle.LastInputs.Throttle,
-            SpeedMps = s.V,
+            SpeedMps = d.Speed,   // total speed: a car sliding backwards in a spin still squeals
             Coasting = o.Branch == DriveBranch.Coast,
             RevLimiter = o.RevLimiter,
             EngineOff = s.EngineBlown || _sim.Vehicle.Paused,

@@ -70,6 +70,7 @@ public partial class VehicleController : Node3D
     }
 
     private int _requestedShift;
+    private double _wheelTravel;
     private (double Throttle, double Brake, double Steer) _rawTargets;
     private VehicleState? _autodriveReport;
 
@@ -139,6 +140,7 @@ public partial class VehicleController : Node3D
             },
             AfterStep = (d, u) =>
             {
+                _wheelTravel += d.State.V * Loop.Clock.FixedDt;
                 AfterStep?.Invoke(d, u);
                 // Autodrive reports the state of the first step at or past the requested time (frame-rate independent).
                 if (_autodriveSeconds > 0 && _autodriveReport == null && d.State.Time >= _autodriveSeconds - 1e-9) _autodriveReport = d.State;
@@ -255,7 +257,8 @@ public partial class VehicleController : Node3D
 
         var prev = Loop.PreviousState;
         var cur = Dynamics.State;
-        double distance = prev.Distance + (cur.Distance - prev.Distance) * Loop.Alpha;
-        _visuals?.UpdateVisuals(distance, Dynamics.Outputs.SteerAngle, LastInputs.Brake, cur.EngineBlown, HeadlightsOn);
+        // Wheel rotation follows the signed v_x (wheels turn backwards when the body slides backwards in a spin).
+        double travel = _wheelTravel + (cur.V - prev.V) * 0.5 * Loop.Clock.FixedDt * Loop.Alpha;
+        _visuals?.UpdateVisuals(travel, Dynamics.Outputs.SteerAngle, LastInputs.Brake, cur.EngineBlown, HeadlightsOn);
     }
 }

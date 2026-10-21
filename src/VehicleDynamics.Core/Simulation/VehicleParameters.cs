@@ -102,16 +102,35 @@ public sealed class VehicleParameters
     /// <summary>E4 yaw moment of inertia I_zz [kg m²]. User-supplied (2026-10-20), same value as the Gazebo URDF.</summary>
     public double YawInertia { get; set; } = 1100;
     /// <summary>
-    /// E4 front-axle cornering stiffness C_αf [N/rad]. ESTIMATE: ~14.3/rad × the 1150 kg front axle load, chosen with
-    /// <see cref="CorneringStiffnessRear"/> for ~0.7 deg/g understeer (sporty FWD hatchback). Not measured.
+    /// E4 front-axle effective cornering stiffness C_αf [N/rad]. ESTIMATE (tuned 2026-10-20): ~12/rad × the 1150 kg front
+    /// axle load. With <see cref="CorneringStiffnessRear"/> it gives an understeer gradient of ~2.6 deg/g, typical of a
+    /// FWD hatchback (axle stiffnesses include compliance and roll-steer effects). Not measured.
     /// </summary>
-    public double CorneringStiffnessFront { get; set; } = 100000;
-    /// <summary>E4 rear-axle cornering stiffness C_αr [N/rad]. ESTIMATE: ~17.5/rad × the 1150 kg rear axle load. Not measured.</summary>
-    public double CorneringStiffnessRear { get; set; } = 75000;
-    /// <summary>E4 numerics: below this longitudinal speed [m/s] the lateral states follow the kinematic model.</summary>
-    public double DynamicBlendLowSpeed { get; set; } = 1.5;
-    /// <summary>E4 numerics: above this speed [m/s] the lateral states are fully dynamic (smoothstep blend in between).</summary>
-    public double DynamicBlendHighSpeed { get; set; } = 4.0;
+    public double CorneringStiffnessFront { get; set; } = 85000;
+    /// <summary>E4 rear-axle effective cornering stiffness C_αr [N/rad]. ESTIMATE: ~27/rad × the 1150 kg rear axle load. Not measured.</summary>
+    public double CorneringStiffnessRear { get; set; } = 115000;
+    /// <summary>
+    /// E4 tyre load sensitivity k: friction coefficient of a tyre = μ (1 − k (F_z − F_z,nom) / F_z,nom), F_z,nom = M g / 4.
+    /// More heavily loaded tyres use friction less efficiently, so the heavier front axle saturates first (limit
+    /// understeer) and lateral load transfer costs axle grip. ESTIMATE (typical passenger-car tyres 0.1–0.2).
+    /// </summary>
+    public double TyreLoadSensitivity { get; set; } = 0.15;
+    /// <summary>
+    /// E4 share of the lateral load transfer M a_y h carried by the front axle (roll-stiffness distribution). model.m's
+    /// springs alone give K_φf / K_φ = 0.43, but model.m has no anti-roll bars; FWD hatchbacks carry a front bar.
+    /// PROVISIONAL 0.60 (more front share → more understeer at the limit).
+    /// </summary>
+    public double FrontRollStiffnessShare { get; set; } = 0.60;
+    /// <summary>
+    /// E4 numerics: slip angles use √(u² + ε²) as the longitudinal wheel speed, so they stay finite and smooth at standstill
+    /// and when a wheel rolls backwards in a spin [m/s]. 2 m/s keeps the explicit yaw mode non-oscillatory at standstill
+    /// (λ·dt ≈ 0.8 at dt = 5 ms) and changes slip angles by &lt; 2 % above 10 m/s.
+    /// </summary>
+    public double SlipVelocityEpsilon { get; set; } = 2.0;
+    /// <summary>E4 numerics: below this TOTAL speed [m/s] the lateral states follow the kinematic model.</summary>
+    public double DynamicBlendLowSpeed { get; set; } = 0.5;
+    /// <summary>E4 numerics: above this total speed [m/s] the lateral states are fully dynamic (smoothstep blend in between).</summary>
+    public double DynamicBlendHighSpeed { get; set; } = 2.0;
 
     /// <summary>Which standing-start model <see cref="ClutchLaunch"/> enables: E5 physical clutch (default) or the seed rule.</summary>
     public LaunchModel LaunchModel { get; set; } = LaunchModel.PhysicalClutch;
@@ -129,10 +148,11 @@ public sealed class VehicleParameters
     public double ClutchBiteRpm { get; set; } = 3000;
 
     /// <summary>
-    /// Game starting point: model.m values except the mass, M = 1150 kg (user-supplied with I_zz, 2026-10-20; model.m
-    /// uses 1420 kg). Extensions and C1 keep their defaults.
+    /// Game starting point: model.m values except the mass, M = 1150 kg (user-supplied with I_zz; model.m uses 1420 kg),
+    /// and the friction coefficient μ = 1.05 (performance road tyres, user request for more grip; model.m uses 0.90).
+    /// Extensions and C1 keep their defaults.
     /// </summary>
-    public static VehicleParameters GameDefaults() => new() { Mass = 1150 };
+    public static VehicleParameters GameDefaults() => new() { Mass = 1150, Mu = 1.05 };
 
     [JsonIgnore]
     public double Theta => SlopeMode switch
@@ -251,7 +271,10 @@ public sealed class VehicleParameters
         R(nameof(YawInertia), YawInertia, 100, 10000);
         R(nameof(CorneringStiffnessFront), CorneringStiffnessFront, 5000, 500000);
         R(nameof(CorneringStiffnessRear), CorneringStiffnessRear, 5000, 500000);
-        R(nameof(DynamicBlendLowSpeed), DynamicBlendLowSpeed, 0.2, 10);
+        R(nameof(TyreLoadSensitivity), TyreLoadSensitivity, 0, 0.5);
+        R(nameof(FrontRollStiffnessShare), FrontRollStiffnessShare, 0.1, 0.9);
+        R(nameof(SlipVelocityEpsilon), SlipVelocityEpsilon, 0.2, 5);
+        R(nameof(DynamicBlendLowSpeed), DynamicBlendLowSpeed, 0.1, 10);
         R(nameof(DynamicBlendHighSpeed), DynamicBlendHighSpeed, DynamicBlendLowSpeed + 0.1, 20);
         R(nameof(EngineInertia), EngineInertia, 0.02, 3);
         R(nameof(ClutchCapacity), ClutchCapacity, 20, 2000);

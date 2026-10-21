@@ -53,7 +53,7 @@ public partial class RaceHud : Control
             DrawLine(c, c + new Vector2(Mathf.Cos(na), Mathf.Sin(na)) * (r - 8), o.RevLimiter ? UiTheme.Bad : UiTheme.Accent, 4);
         }
         DrawCircle(c, 8, UiTheme.Accent);
-        DrawString(font, c + new Vector2(-70, 66), F(s.V * 3.6, "0"), HorizontalAlignment.Center, 140, 46, UiTheme.Text);
+        DrawString(font, c + new Vector2(-70, 66), F(Math.Abs(s.V) * 3.6, "0"), HorizontalAlignment.Center, 140, 46, UiTheme.Text);
         DrawString(font, c + new Vector2(-70, 88), "km/h", HorizontalAlignment.Center, 140, 14, UiTheme.Muted);
         string gear = s.EngineBlown ? "X" : s.Gear.ToString();
         DrawString(font, c + new Vector2(-30, -42), gear, HorizontalAlignment.Center, 60, 34, s.EngineBlown ? UiTheme.Bad : UiTheme.Accent);

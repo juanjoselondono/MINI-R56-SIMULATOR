@@ -7,8 +7,9 @@ public struct VehicleState
     public double Y;
     public double Psi;
     /// <summary>
-    /// Longitudinal speed v_x [m/s] in the body frame (E4), or the speed along the path (E1). Always >= 0: model.m has
-    /// no reverse. This is the speed the longitudinal model.m equations act on and the speedometer shows.
+    /// Longitudinal speed v_x [m/s] in the body frame (E4), or the speed along the path (E1). model.m has no reverse: the
+    /// car never starts moving backwards, but with E4 the body may slide backwards during a spin (v_x &lt; 0).
+    /// This is the speed the longitudinal model.m equations act on and the speedometer shows.
     /// </summary>
     public double V;
     /// <summary>E4 lateral velocity of the CG in the body frame [m/s], + = left. 0 in the E1 kinematic model.</summary>
@@ -23,8 +24,9 @@ public struct VehicleState
     public double EngineOmega;
     /// <summary>E5 launch clutch locked (engine speed tied to wheel speed). Always true without the physical clutch.</summary>
     public bool ClutchLocked;
-    /// <summary>Longitudinal acceleration of the previous step [m/s²], used for the E4 axle load transfer.</summary>
+    /// <summary>Longitudinal / lateral specific force (accelerometer reading) of the previous step [m/s²], used for the E4 load transfer.</summary>
     public double AxPrev;
+    public double AyPrev;
     public double Distance;
     public double Time;
     public bool EngineBlown;

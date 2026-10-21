@@ -289,8 +289,8 @@ is generated from that file. Every range lies inside `VehicleParameters.Validate
 decreasing gear ratios, c within 5–95 % of L, idle < fuel cut < money shift, clutch target between idle and fuel cut) are
 checked on the edited copy before Apply.
 
-Defaults come from `VehicleParameters.GameDefaults()`. These are model.m's values except the mass: 1150 kg, supplied by
-the user together with I_zz, against model.m's 1420 kg.
+Defaults come from `VehicleParameters.GameDefaults()`. These are model.m's values except the mass (1150 kg,
+user-supplied together with I_zz; model.m uses 1420 kg) and μ (1.05, user request for more grip; model.m uses 0.90).
 
 Not exposed:
 - `g`, a physical constant;
@@ -306,7 +306,7 @@ Not exposed:
 | Vehicle body & environment | Frontal area A | m² | 1.0 – 4.0 | 0.01 | model.m | Projected frontal area (car.A). |
 | Vehicle body & environment | Air density ρ | kg/m³ | 0.9 – 1.4 | 0.005 | model.m | env.rho_air (1.225 = sea level, 15 °C). |
 | Vehicle body & environment | Road grade | % | -20 – 20 | 0.5 | model.m | model.m slope (pct mode). One grade for the whole track, as in model.m: + = uphill. |
-| Tyres & traction limit (F_x,max, FWD) | Friction coefficient μ | – | 0.3 – 1.6 | 0.01 | model.m | Tyre–road friction (car.mu). Scales F_x,max, braking force and the lateral grip (E4: μ·F_z per axle). |
+| Tyres & traction limit (F_x,max, FWD) | Friction coefficient μ | – | 0.3 – 1.6 | 0.01 | model.m | Tyre–road friction (car.mu = 0.90 in model.m; game default 1.05 for performance road tyres). Scales F_x,max, braking and the lateral grip. |
 | Tyres & traction limit (F_x,max, FWD) | Grip limit on tyre force (C1) |  | on / off |  | Correction C1 | On: F_x,max caps the tyre force (driveline force minus what spins up the rotating parts); a grip-limited tyre accelerates the bare mass. Off: model.m's formula (driveline force capped, divided by M_eq). |
 | Tyres & traction limit (F_x,max, FWD) | Tyre width | m | 0.145 – 0.255 | 0.005 | model.m | 175/65 R15 → 0.175. With aspect ratio and rim gives R_w. |
 | Tyres & traction limit (F_x,max, FWD) | Aspect ratio | – | 0.3 – 0.8 | 0.05 | model.m | Sidewall height / width. |
@@ -340,8 +340,10 @@ Not exposed:
 | Launch clutch (extension E5) | Clutch bite speed | rpm | 1500 – 5000 | 50 | Ext. E5 | Engine speed at which the automatic launch clutch is fully engaged; full throttle settles near 2300 rpm while slipping. |
 | Steering & lateral dynamics (E4 dynamic / E1 kinematic) | Dynamic single-track (E4) |  | on / off |  | Ext. E4 (estimate) | On: slip angles, tyre forces, yaw inertia (the car can understeer, oversteer and spin). Off: E1 kinematic path with a friction circle. |
 | Steering & lateral dynamics (E4 dynamic / E1 kinematic) | Yaw inertia I_zz | kg·m² | 500 – 3000 | 10 | user-supplied | Yaw moment of inertia (user-supplied 1100). For reference, M·l_f·l_r = 1650 kg·m² at 1150 kg. |
-| Steering & lateral dynamics (E4 dynamic / E1 kinematic) | Front cornering stiffness C_αf | N/rad | 30000 – 250000 | 1000 | Ext. E4 (estimate) | Front axle (both tyres). Estimate: 14.3/rad × front axle load; with C_αr gives ~0.7°/g understeer. |
-| Steering & lateral dynamics (E4 dynamic / E1 kinematic) | Rear cornering stiffness C_αr | N/rad | 30000 – 250000 | 1000 | Ext. E4 (estimate) | Rear axle (both tyres). Estimate: 17.5/rad × rear axle load. Lower it relative to C_αf for a more nervous, oversteering car. |
+| Steering & lateral dynamics (E4 dynamic / E1 kinematic) | Tyre load sensitivity k | – | 0 – 0.4 | 0.01 | Ext. E4 (estimate) | Friction coefficient falls with tyre load: μ_i = μ(1 − k(F_zi − F_z,nom)/F_z,nom). Makes the heavier front axle and lateral load transfer cost grip (limit understeer). 0 = load-independent. |
+| Steering & lateral dynamics (E4 dynamic / E1 kinematic) | Front roll-stiffness share | – | 0.2 – 0.8 | 0.01 | Ext. E4 (estimate) | Share of the lateral load transfer carried by the front axle (anti-roll bar balance). Higher = more understeer. model.m's springs alone give 0.43. |
+| Steering & lateral dynamics (E4 dynamic / E1 kinematic) | Front cornering stiffness C_αf | N/rad | 30000 – 250000 | 1000 | Ext. E4 (estimate) | Front axle (both tyres). Estimate: ~12/rad × front axle load; with C_αr gives ~2.6°/g understeer (linear range). |
+| Steering & lateral dynamics (E4 dynamic / E1 kinematic) | Rear cornering stiffness C_αr | N/rad | 30000 – 250000 | 1000 | Ext. E4 (estimate) | Rear axle (both tyres, incl. compliance). Estimate: ~27/rad × rear axle load. Lower it relative to C_αf for a more nervous, oversteering car. |
 | Steering & lateral dynamics (E4 dynamic / E1 kinematic) | Max steer angle δ_max | rad | 0.05 – 0.6 | 0.005 | Ext. E1 | Road-wheel angle at full input. Not in model.m; the seed used 0.06. |
 | Steering & lateral dynamics (E4 dynamic / E1 kinematic) | Grip utilisation (E1 only) | – | 0.5 – 1.3 | 0.01 | Ext. E1 | E1 kinematic model only: friction-circle radius = factor · F_x,max (model.m §10 uses 0.8 as a planning margin). |
 | Surfaces (extension E2) | Curb grip factor | – | 0.3 – 1.2 | 0.01 | Ext. E2 | μ multiplier on the curb band. |
@@ -371,7 +373,7 @@ but unused), aerodynamic lift and wind, banking, kerbs and off-road surfaces, co
 | E1 | (Optional since 2026-10-20; the default is E4.) Kinematic single-track: $\beta=\arctan(\tfrac{l_r}{L}\tan\delta)$, $r=V\cos\beta\tan\delta/L$, $F_y=MVr$, grip radius $F_{grip}=$ gripUtilization·$F_{x,max}(\mu_{surf})$; if $F_y>F_{grip}$: $r=F_{grip}/(MV)$, SlipIndicator = demand/available; longitudinal limited to $\sqrt{F_{grip}^2-F_y^2}$; $\dot\psi=r$, $\dot X=V\cos(\psi+\beta)$, $\dot Y=V\sin(\psi+\beta)$, $a_y=Vr$. Cannot spin (no yaw inertia). | DESIGN_CONTRACT §2b; friction circle from model.m §10 |
 | E2 | Surface factors on μ and $f_r$ (asphalt 1.0/1, curb 0.95, grass 0.6/4) | DESIGN_CONTRACT §2b, provisional gameplay values |
 | E3 | Barrier impulse: $u_n'=-e\,u_n$, $u_t'=(1-k_t|u_n|/\max(V,\varepsilon))u_t$, heading re-aligned ≤ maxYawKick, push-out, severity $|u_n|$, contact latching; while latched, a sustained-contact constraint removes the approaching normal velocity ($V'=\sqrt{V^2-u_n^2}$, no bounce, no heading change) so pressing into a wall cannot build speed. Approaches slower than the bounce threshold (1 m/s, as Box2D's default) are sliding contact (no impulse). With E4 the velocity after the response is re-expressed in the new body frame ($v_x\ge0$) and $r$ is scaled by $V'/V$ | DESIGN_CONTRACT §2b, §8 |
-| E4 | Dynamic single-track model, §15 | user request 2026-10-20; I_zz and M user-supplied, C_α estimated |
+| E4 | Dynamic single-track model with load-sensitive tyres and roll-stiffness split, §15 | user requests 2026-10-20; I_zz, M, μ user-supplied/requested, C_α, k, φ_f estimated |
 | E5 | Physical launch clutch, §16 | user request 2026-10-20 (replaces S1 by default) |
 | C1 | Correction of model.m §7: grip limit on the tyre force, §17 | user-approved 2026-10-20 |
 | S1 | (Optional since 2026-10-20: `LaunchModel = SeedRule`.) Clutch-slip launch: gear 1, wheel rpm < 3500, throttle > 0.1 → rpm = max(wheel, 1000 + throttle·2500) | monaco.html l. 209–215 |
@@ -419,75 +421,95 @@ fixed import rotation, applied once in the asset pipeline (`tools/asset_pipeline
 
 ## 15. E4: dynamic single-track (bicycle) model
 
-**State.** The body-frame velocities $v_x$ (`VehicleState.V`, ≥ 0) and $v_y$ (`Vy`), the yaw rate $r$ (`YawRate`), and the
-pose $X, Y, \psi$. Axes: x forward, y left, r counter-clockwise. Geometry: $l_r = c$ (model.m), $l_f = L - c$.
+Tuned and corrected on 2026-10-20 (second pass) after driving feedback: too much oversteer, too little grip, and a
+glitch in spins.
 
-**Axle loads.** The static split, plus longitudinal transfer using the previous step's $a_x$, with the same $h$ that
-model.m uses in $F_{x,max}$:
-$$F_{zf} = \frac{M g\cos\theta\, l_r}{L} - \frac{M a_x h}{L}, \qquad F_{zr} = M g\cos\theta - F_{zf}$$
-Each load is clamped to 5–95 % of the weight.
+**State.** The body-frame velocities $v_x$ (`VehicleState.V`) and $v_y$ (`Vy`), the yaw rate $r$ (`YawRate`), and the pose
+$X, Y, \psi$. Axes: x forward, y left, r counter-clockwise. Geometry: $l_r = c$ (model.m), $l_f = L - c$.
 
-**Friction circles per axle.** These are applied longitudinal force first:
-- $G_f = \mu_{eff} F_{zf}$ and $G_r = \mu_{eff} F_{zr}$;
-- $F_{y,max} = \sqrt{G^2 - F_x^2}$ on each axle.
+**No reverse gear, but spins.** The car never *starts* moving backwards: from $v_x \ge 0$ it stops at 0 unless the body
+is sliding or rotating ($|v_y| > 0.3$ m/s or $|r| > 0.2$ rad/s). In a spin the body may therefore slide backwards
+($v_x < 0$) and continue smoothly.
 
-The axle longitudinal forces come from model.m's branches:
-- **Drive:** front only (FWD). The tyre force is limited by model.m's $F_{x,max}$ (see C1).
+Dissipative forces oppose the actual direction of $v_x$: rolling (evaluated at $|v_x|$), drag, brakes, engine braking
+and locked wheels. The direction factor is exactly ±1 above 0.5 m/s, so model.m's formulas are unchanged. Near zero it
+ramps linearly only while sliding or rolling backwards, which avoids chatter. A car that is not sliding keeps model.m's
+behaviour, so a parked car is still held on a slope.
+
+**Axle loads.**
+- **Longitudinal transfer:** $F_{zf} = M g\cos\theta\, l_r/L - M a_x h/L$, $F_{zr} = M g\cos\theta - F_{zf}$. Here $a_x$
+  is the previous step's *specific force* (accelerometer reading). It is not $\dot v_x$, whose $v_y r$ term swings
+  violently in a spin.
+- **Lateral transfer:** $M |a_y| h$, split by the front roll-stiffness share $\phi_f$: $\Delta_f = M|a_y|h\,\phi_f/t_f$
+  and $\Delta_r = M|a_y|h\,(1-\phi_f)/t_r$.
+- **Load-sensitive friction per tyre:** $\mu_i = \mu\,(1 - k\,(F_{zi} - F_{z,nom})/F_{z,nom})$ with
+  $F_{z,nom} = Mg/4$. The axle capacity is $\mu\sum_i F_{zi}(1 - k(\dots))$ over the outer tyre ($F_z/2 + \Delta$) and the
+  inner one ($F_z/2 - \Delta$, never below 0).
+
+Because $\sum F_{zi}^2 \ge F_z^2/2$, the capacity never exceeds $\mu F_z$. The heavier front axle and any lateral
+transfer cost grip, which is what makes a front-heavy FWD car understeer at the limit.
+
+**Friction circles per axle.** Longitudinal force first: $F_{y,max} = \sqrt{G^2 - F_x^2}$.
+- **Drive:** front axle only (FWD), limited by model.m's $F_{x,max}$ (C1) and by $G_f$.
 - **Braking:** model.m's total force, split by axle load.
 - **Coasting:** the seed engine brake, on the front axle.
 
-Accelerating or braking in a corner therefore costs lateral grip: power understeer, and trail-braking rotation.
+**Slip angles in each wheel's frame.** These are valid for any direction of travel, including wheels rolling backwards:
+$$u_f = v_x\cos\delta + (v_y + l_f r)\sin\delta,\qquad w_f = -v_x\sin\delta + (v_y + l_f r)\cos\delta$$
+$$\alpha_f = -\operatorname{atan2}\!\big(w_f,\ \sqrt{u_f^2+\varepsilon^2}\big),\qquad \alpha_r = -\operatorname{atan2}\!\big(v_y - l_r r,\ \sqrt{v_x^2+\varepsilon^2}\big)$$
+- $|\alpha| \le 90°$ always, and the lateral force always opposes the wheel's side slip. The previous form
+  $\delta - \operatorname{atan2}(\dots, v_x)$ was discontinuous once a wheel rolled backwards.
+- $\varepsilon = 2$ m/s keeps $\alpha$ finite at standstill and the explicit yaw mode non-oscillatory: $\lambda\,dt \approx 0.8$
+  at dt = 5 ms, where ε = 1 gave 1.56, which is stable but sign-alternating. It changes slip angles by less than 2 % above
+  10 m/s.
 
-**Slip angles and tyre forces.**
-$$\alpha_f = \delta - \operatorname{atan2}(v_y + l_f r,\ v_x), \qquad \alpha_r = -\operatorname{atan2}(v_y - l_r r,\ v_x)$$
-$$F_{yf} = F_{yf,max}\tanh\!\left(\frac{C_{\alpha f}\,\alpha_f}{F_{yf,max}}\right), \qquad F_{yr} = F_{yr,max}\tanh\!\left(\frac{C_{\alpha r}\,\alpha_r}{F_{yr,max}}\right)$$
-The tanh is linear for small slip angles (slope $C_\alpha$) and saturates smoothly at the friction limit.
+**Tyre forces.** $F_y = F_{y,max}\tanh(C_\alpha\alpha/F_{y,max})$: linear for small angles, saturating smoothly, with no
+breakdown at large angles.
 
-**Equations of motion.** $F_x^{m.m}$ is model.m's longitudinal force (drive, brake or coast branch, including resistances),
-$M_{eq}$ the branch's equivalent mass, and $F_{xf}$ the front axle's longitudinal tyre force:
-$$\dot v_x = \frac{F_x^{m.m} + F_{xf}(\cos\delta - 1) - F_{yf}\sin\delta}{M_{eq}} + v_y r$$
-$$\dot v_y = \frac{F_{yf}\cos\delta + F_{xf}\sin\delta + F_{yr}}{M} - v_x r$$
-$$\dot r = \frac{l_f\,(F_{yf}\cos\delta + F_{xf}\sin\delta) - l_r F_{yr}}{I_{zz}}$$
+**Equations of motion.** $a_x$, $a_y$ are specific forces. $F_x^{m.m}$ is model.m's longitudinal force for the branch
+(including resistances), $M_{eq}$ the branch's equivalent mass, and $F_{xf}$ the front axle's longitudinal tyre force:
+$$a_x = \frac{F_x^{m.m} + F_{xf}(\cos\delta-1) - F_{yf}\sin\delta}{M_{eq}},\quad \dot v_x = a_x + v_y r$$
+$$a_y = \frac{F_{yf}\cos\delta + F_{xf}\sin\delta + F_{yr}}{M},\quad \dot v_y = a_y - v_x r$$
+$$\dot r = \frac{l_f(F_{yf}\cos\delta + F_{xf}\sin\delta) - l_r F_{yr}}{I_{zz}}$$
 With $\delta = v_y = r = 0$ every added term is exactly zero, and the straight-line update is model.m's verbatim
-(`Dynamic_StraightLine_IsBitIdenticalToKinematic`).
+(`Dynamic_StraightLine_IsBitIdenticalToKinematic`; MATLAB comparison 18/18 unchanged).
 
-**Integration.** Semi-implicit Euler, like model.m.
-- New velocities first: $v_x$ exactly as model.m, then $v_y$ and $r$.
-- Position from the body-frame displacement $(v_x' dt + \tfrac12 a dt^2,\ v_y' dt)$, rotated by the midpoint heading.
-- Odometer: the displacement length.
+**Integration.** Semi-implicit Euler, as in model.m.
 
-**Low speed.** Slip angles are undefined at standstill. Between 1.5 and 4 m/s, $v_y$ and $r$ are blended (smoothstep)
-toward the kinematic values $v_y = v_x \tfrac{l_r}{L}\tan\delta$ and $r = v_x\tan\delta/L$, and below 1.5 m/s they are
-fully kinematic.
+**Low speed.** When the total speed $\sqrt{v_x^2+v_y^2}$ is below 2 m/s, $v_y$ and $r$ relax with a time constant of
+0.2 s toward the kinematic values $v_y = v_x\tfrac{l_r}{L}\tan\delta$ and $r = v_x\tan\delta/L$. Below 0.5 m/s the
+relaxation has full weight. A parked car has $v_y = r = 0$.
+
+The relaxation replaces the first version, which snapped toward kinematic per step and was based on $v_x$: it reset
+$v_y$ and $r$ to 0 at $v_x \le 0$. That was the spin glitch: the car lost its sideways speed within a few steps, at
+about 60 m/s².
 
 **Parameters.**
 
 | Parameter | Value | Source |
 |---|---|---|
-| $I_{zz}$ | 1100 kg·m² | user-supplied (same as the Gazebo URDF). For comparison, the common estimate $M l_f l_r$ = 1650 kg·m² at 1150 kg, so 1100 makes the car comparatively agile. |
+| $I_{zz}$ | 1100 kg·m² | user-supplied. For comparison, $M l_f l_r$ = 1650 kg·m² at 1150 kg |
 | $M$ | 1150 kg | user-supplied; model.m uses 1420 kg |
-| $C_{\alpha f}$ | 100 000 N/rad | estimate: 14.3/rad × front axle load (1150 kg) |
-| $C_{\alpha r}$ | 75 000 N/rad | estimate: 17.5/rad × rear axle load |
+| μ (game) | 1.05 | user request for more grip (performance road tyres); model.m uses 0.90 |
+| $C_{\alpha f}$ | 85 000 N/rad | estimate |
+| $C_{\alpha r}$ | 115 000 N/rad | estimate |
+| $k$ | 0.15 | estimate; typical road tyres 0.1–0.2 |
+| $\phi_f$ | 0.60 | provisional: front anti-roll bar. model.m's springs alone give 0.43, but model.m has no bars |
 
-The two cornering stiffnesses are estimates, not measurements, chosen so that the understeer gradient
-$K = M(l_r/C_{\alpha f} - l_f/C_{\alpha r})/L = 1.3\cdot10^{-3}$ s²/m at 1150 kg (about 0.7°/g). That is mild
-understeer, typical of a sporty FWD hatchback; the characteristic speed is about 157 km/h.
+The two cornering stiffnesses give a linear-range understeer gradient of about 2.6°/g at 1150 kg. They are effective
+axle values, including compliance and roll steer.
 
-**Checks.**
-- The steady-state yaw-rate gain matches the linear bicycle result $r = v_x\delta/(L + K v_x^2)$ within 0.25 %.
-- Full lock at 25 m/s saturates at $|a_y| = 8.46$ m/s², below μg = 8.83.
-- Step steer settles.
-- The response is symmetric.
-- Random inputs stay finite.
+**Checks** (`DynamicModelTests`).
+- **Linear range:** the steady-state yaw gain matches the linear bicycle result within 0.25 %.
+- **Limit balance:** in slow ramp steers, held speed and coasting, the front axle saturates first. Peak lateral
+  acceleration is 0.92–0.93 g.
+- **Spins:** at 22 m/s, with no input, full throttle or 60 % brake, the car turns past 180° and slides backwards, with
+  |ΔU| ≤ 0.047 m/s and |Δr| ≤ 0.058 rad/s per step, and slows from 22 to about 18–20 m/s in 0.5 s.
+- **Corner + brake** (0.7 g at 20 m/s, then lift / 50 % / 100 % brake):
+  - before tuning: spins at 50 % and 100 % (β up to 157°);
+  - now: β ≤ 2°, front-limited.
 
-The tests are in `tests/VehicleDynamics.Tests/DynamicModelTests.cs`.
-
-**Not modelled.**
-- Lateral load transfer and per-wheel forces (single-track model).
-- Tyre relaxation length.
-- Combined slip beyond the friction-circle priority.
-- Load sensitivity of $C_\alpha$.
-- Aligning torque and steering feel.
+**Not modelled.** Per-wheel forces beyond the axle split, tyre relaxation length, combined-slip shapes, aligning torque.
 
 ## 16. E5: physical launch clutch
 

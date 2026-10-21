@@ -120,6 +120,7 @@ public sealed class VehicleDynamics
         s.Time += dt;
         s.EngineRpm = o.EngineRpm;
         s.AxPrev = o.Ax;
+        s.AyPrev = o.Ay;
         State = s;
         Outputs = o;
     }
@@ -165,11 +166,11 @@ public sealed class VehicleDynamics
 
     private void IntegrateEuler(ref VehicleState s, in VehicleOutputs o, in VehicleInputs u, double dt)
     {
+        if (Dynamic) { IntegrateEulerDynamic(ref s, o, dt); return; }
         double a = o.Ax;
         double vNew = s.V + a * dt;
         if (vNew < 0) { vNew = 0; }
 
-        if (!Dynamic)
         {
             double ds = vNew * dt + 0.5 * a * (dt * dt);
             if (ds < 0) ds = 0;
@@ -182,17 +183,32 @@ public sealed class VehicleDynamics
             s.Y += ds * Math.Sin(heading);
             s.Psi += dPsi;
             s.V = vNew;
-            return;
         }
+    }
+
+    /// <summary>A sliding/rotating body may cross v_x = 0 (spin); otherwise model.m's no-reverse rule holds.</summary>
+    private static bool IsSliding(in VehicleState s) => Math.Abs(s.Vy) > 0.3 || Math.Abs(s.YawRate) > 0.2;
+
+    /// <summary>
+    /// E4 semi-implicit Euler (model.m's scheme for v_x and the distance). No reverse gear: from v_x &gt;= 0 the car only
+    /// stops at 0 unless it is sliding or rotating, so a spin may carry the body backwards and continue smoothly.
+    /// </summary>
+    private void IntegrateEulerDynamic(ref VehicleState s, in VehicleOutputs o, double dt)
+    {
+        double a = o.VxDot;
+        double vNew = s.V + a * dt;
+        bool held = false;
+        if (s.V >= 0 && vNew < 0 && !IsSliding(s)) { vNew = 0; held = true; }
 
         double vyNew = s.Vy + o.VyDot * dt;
         double rNew = s.YawRate + o.YawAccel * dt;
-        BlendTowardsKinematic(vNew, o.SteerAngle, ref vyNew, ref rNew);
+        BlendTowardsKinematic(vNew, o.SteerAngle, dt, ref vyNew, ref rNew);
+        if (held && Math.Abs(vyNew) < 0.05) { vyNew = 0; rNew = 0; } // parked: no residual rotation
 
         double dx = vNew * dt + 0.5 * a * (dt * dt);
-        if (dx < 0) dx = 0;
+        if (held && dx < 0) dx = 0;
         double dy = vyNew * dt;
-        if (dy == 0 && rNew == 0)
+        if (dy == 0 && rNew == 0 && dx >= 0)
         {
             // Straight line: model.m's distance update verbatim.
             if (dx > 0) s.Distance = s.Distance + vNew * dt + 0.5 * a * (dt * dt);
@@ -214,22 +230,29 @@ public sealed class VehicleDynamics
     }
 
     /// <summary>
-    /// E4 numerics: slip angles are ill-defined near standstill, so below <see cref="VehicleParameters.DynamicBlendHighSpeed"/>
-    /// the lateral states are blended (smoothstep) towards the kinematic single-track values, fully kinematic below
-    /// <see cref="VehicleParameters.DynamicBlendLowSpeed"/>.
+    /// E4 numerics: near standstill the tyre model is stiff and slip angles lose meaning, so when the TOTAL speed
+    /// √(v_x² + v_y²) is below <see cref="VehicleParameters.DynamicBlendHighSpeed"/> the lateral states are blended
+    /// (smoothstep) towards the kinematic single-track values, fully kinematic below
+    /// <see cref="VehicleParameters.DynamicBlendLowSpeed"/>. Based on total speed, a car sliding sideways (v_x ≈ 0 in a
+    /// spin) keeps its dynamics. The blend is a relaxation with time constant <see cref="KinematicRelaxationTime"/>, not a
+    /// per-step snap, so a residual slide decays at a friction-like rate instead of stopping within a few steps.
     /// </summary>
-    private void BlendTowardsKinematic(double vx, double delta, ref double vy, ref double r)
+    private void BlendTowardsKinematic(double vx, double delta, double dt, ref double vy, ref double r)
     {
-        if (vx <= 0) { vy = 0; r = 0; return; }
-        double x = (vx - _p.DynamicBlendLowSpeed) / (_p.DynamicBlendHighSpeed - _p.DynamicBlendLowSpeed);
+        double speed = Math.Sqrt(vx * vx + vy * vy);
+        double x = (speed - _p.DynamicBlendLowSpeed) / (_p.DynamicBlendHighSpeed - _p.DynamicBlendLowSpeed);
         double w = Smoothstep(x);
         if (w >= 1) return;
         double tanD = Math.Tan(delta);
         double vyKin = vx * (_p.CgToRear / _p.Wheelbase) * tanD;
         double rKin = vx * tanD / _p.Wheelbase;
-        vy = w * vy + (1 - w) * vyKin;
-        r = w * r + (1 - w) * rKin;
+        double k = (1 - w) * (1 - Math.Exp(-dt / KinematicRelaxationTime));
+        vy += k * (vyKin - vy);
+        r += k * (rKin - r);
     }
+
+    /// <summary>E4 numerics: time constant of the low-speed relaxation towards the kinematic model [s].</summary>
+    public const double KinematicRelaxationTime = 0.2;
 
     private static double Smoothstep(double x)
     {
@@ -276,13 +299,13 @@ public sealed class VehicleDynamics
         double[] F(double[] y)
         {
             var sv = s0;
-            sv.V = Math.Max(0, y[0]); sv.Vy = y[1]; sv.YawRate = y[2]; sv.Psi = y[3];
+            sv.V = y[0]; sv.Vy = y[1]; sv.YawRate = y[2]; sv.Psi = y[3];
             if (auto) sv.Gear = AutoGear(sv.V);
             var o = Evaluate(sv, u);
             double c = Math.Cos(sv.Psi), sn = Math.Sin(sv.Psi);
             return new[]
             {
-                o.Ax, o.VyDot, o.YawAccel, sv.YawRate,
+                o.VxDot, o.VyDot, o.YawAccel, sv.YawRate,
                 sv.V * c - sv.Vy * sn, sv.V * sn + sv.Vy * c, Math.Sqrt(sv.V * sv.V + sv.Vy * sv.Vy),
             };
         }
@@ -293,8 +316,9 @@ public sealed class VehicleDynamics
         var k3 = F(Add(y0, k2, 0.5 * dt));
         var k4 = F(Add(y0, k3, dt));
         var y1 = y0.Select((v, i) => v + dt / 6 * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i])).ToArray();
-        double vNew = Math.Max(0, y1[0]), vy = y1[1], r = y1[2];
-        BlendTowardsKinematic(vNew, Math.Clamp(u.SteerAngle, -_p.MaxSteerAngle, _p.MaxSteerAngle), ref vy, ref r);
+        double vNew = y1[0], vy = y1[1], r = y1[2];
+        if (s0.V >= 0 && vNew < 0 && !IsSliding(s0)) vNew = 0;
+        BlendTowardsKinematic(vNew, Math.Clamp(u.SteerAngle, -_p.MaxSteerAngle, _p.MaxSteerAngle), dt, ref vy, ref r);
         s.V = vNew; s.Vy = vy; s.YawRate = r; s.Psi = y1[3]; s.X = y1[4]; s.Y = y1[5]; s.Distance = Math.Max(s0.Distance, y1[6]);
     }
 
@@ -302,8 +326,8 @@ public sealed class VehicleDynamics
     /// Applies an explicit collision response (extension E3) computed by <see cref="Collision.CollisionResponse.Resolve"/>
     /// or <see cref="Collision.SustainedContact.Resolve"/>: the only sanctioned external write to the state. Position
     /// (depenetration), heading and speed are taken from the result; a response may never increase the speed. With the
-    /// E4 model the new velocity is expressed in the new body frame (v_x clamped at 0: no reverse) and the yaw rate is
-    /// scaled by V'/V.
+    /// E4 model the new velocity is expressed in the new body frame (it may point backwards after a heavy hit) and the
+    /// yaw rate is scaled by V'/V.
     /// </summary>
     public void ApplyCollision(in Collision.CollisionResult r)
     {
@@ -324,7 +348,7 @@ public sealed class VehicleDynamics
         {
             double heading = double.IsFinite(r.VelocityHeading) ? r.VelocityHeading : r.Psi;
             double rel = FrameConversion.WrapAngle(heading - r.Psi);
-            s.V = Math.Max(0, r.V * Math.Cos(rel));
+            s.V = r.V * Math.Cos(rel);
             s.Vy = r.V * Math.Sin(rel);
             s.YawRate *= speed > 1e-9 ? Math.Min(1, r.V / speed) : 0;
         }
@@ -396,7 +420,7 @@ public sealed class VehicleDynamics
         o.SteerAngle = delta;
 
         o.FDrag = Resistance.Drag(p, v);
-        o.FRolling = Resistance.Rolling(p, v, p.RollingFactor(u.Surface));
+        o.FRolling = Resistance.Rolling(p, Math.Abs(v), p.RollingFactor(u.Surface));
         o.FGrade = Resistance.Grade(p);
         double fRes = o.FDrag + o.FRolling + o.FGrade;
         double fBrakeMax = (p.BrakeMuFactor * muEff) * (p.Mass * p.G * cosT);
@@ -405,7 +429,7 @@ public sealed class VehicleDynamics
         if (p.LateralModel == LateralModel.Kinematic)
             EvaluateKinematic(ref o, s, p, v, throttle, brake, fRes, fBrakeMax, muEff, driveMass);
         else
-            EvaluateDynamic(ref o, s, p, v, throttle, brake, fRes, fBrakeMax, muEff, driveMass, cosT);
+            EvaluateDynamic(ref o, s, p, v, throttle, brake, fBrakeMax, muEff, driveMass, cosT);
         return o;
     }
 
@@ -502,32 +526,45 @@ public sealed class VehicleDynamics
         if (o.Branch == DriveBranch.Drive && o.FTractive > 0)
             lonDemand = fxAvail > 0 ? o.FTractive / fxAvail : 10;
         o.SlipIndicator = Math.Min(10, Math.Max(latDemand, lonDemand));
+        o.VxDot = o.Ax;
     }
 
     /// <summary>
     /// E4: dynamic single-track (bicycle) model in the body frame (x forward, y left, r CCW):
-    ///   v̇_x = [model.m longitudinal force + F_xf (cos δ − 1) − F_yf sin δ] / M_eq + v_y r
-    ///   v̇_y = (F_yf cos δ + F_xf sin δ + F_yr) / M − v_x r
+    ///   v̇_x = a_x + v_y r,   a_x = [model.m longitudinal force + F_xf (cos δ − 1) − F_yf sin δ] / M_eq
+    ///   v̇_y = a_y − v_x r,   a_y = (F_yf cos δ + F_xf sin δ + F_yr) / M
     ///   ṙ   = [l_f (F_yf cos δ + F_xf sin δ) − l_r F_yr] / I_zz
-    /// Slip angles α_f = δ − atan2(v_y + l_f r, v_x), α_r = −atan2(v_y − l_r r, v_x); tyre forces
-    /// F_y = F_y,max tanh(C_α α / F_y,max) (linear for small α, saturating at the axle friction limit).
-    /// Axle loads: static split by c/L plus longitudinal transfer M a_x h / L (a_x of the previous step).
-    /// Friction circle per axle, longitudinal first: F_y,max = √((μ F_z)² − F_x²). Drive (FWD) is limited by model.m's
-    /// F_x,max; braking (model.m force) is split by axle load.
+    /// (a_x, a_y = specific forces, i.e. what an accelerometer reads; they drive the load transfer.)
+    /// Slip angles in each wheel's frame, valid for any direction of travel (also rolling backwards in a spin):
+    ///   α = −atan2(v_lateral, √(v_longitudinal² + ε²)), so |α| ≤ 90° and the lateral force always opposes side slip.
+    /// Tyre force F_y = F_y,max tanh(C_α α / F_y,max): linear for small α, saturating smoothly at the axle limit.
+    /// Axle loads: static split by c/L plus longitudinal transfer M a_x h / L; lateral transfer M a_y h / t split by the
+    /// roll-stiffness share. Tyre load sensitivity μ_i = μ (1 − k (F_zi − F_z,nom)/F_z,nom) makes the heavier front axle
+    /// and any lateral transfer cost grip (limit understeer). Friction circle per axle, longitudinal first.
+    /// Dissipative forces (rolling, drag, brakes, engine braking) oppose the actual direction of v_x.
     /// </summary>
     private void EvaluateDynamic(ref VehicleOutputs o, in VehicleState s, VehicleParameters p, double v,
-        double throttle, double brake, double fRes, double fBrakeMax, double muEff, double driveMass, double cosT)
+        double throttle, double brake, double fBrakeMax, double muEff, double driveMass, double cosT)
     {
         double delta = o.SteerAngle;
         double L = p.Wheelbase, lr = p.CgToRear, lf = L - lr;
         double m = p.Mass;
         double w = m * p.G * cosT;
+        // Direction of travel for dissipative forces: exactly ±1 above 0.5 m/s (model.m's formulas unchanged). Near
+        // v_x = 0 they ramp linearly through zero only while the body slides (spin) or rolls backwards, so they fade out
+        // instead of chattering; a car that is not sliding keeps model.m's semantics (forces oppose forward motion and the
+        // integrator holds it at 0), which also holds a parked car on a slope.
+        double dir = Math.Abs(v) >= 0.5 ? Math.Sign(v) : (IsSliding(s) || v < 0 ? v / 0.5 : 1.0);
+        double fRes = dir * (o.FDrag + o.FRolling) + o.FGrade;
+
         double transfer = m * s.AxPrev * p.CgHeight / L;
         double fzF = Math.Clamp(w * lr / L - transfer, 0.05 * w, 0.95 * w);
         double fzR = w - fzF;
         o.FzFront = fzF;
         o.FzRear = fzR;
-        double gF = muEff * fzF, gR = muEff * fzR;
+        double lateralTransfer = m * Math.Abs(s.AyPrev) * p.CgHeight;
+        double gF = AxleGrip(p, muEff, fzF, lateralTransfer * p.FrontRollStiffnessShare / p.TrackFront, w / 4);
+        double gR = AxleGrip(p, muEff, fzR, lateralTransfer * (1 - p.FrontRollStiffnessShare) / p.TrackRear, w / 4);
 
         // Longitudinal (model.m branches) and the per-axle tyre forces they imply.
         double fxF = 0, fxR = 0, lonDemand = 0;
@@ -536,9 +573,9 @@ public sealed class VehicleDynamics
         {
             o.Branch = DriveBranch.Blown;
             o.MassEquivalent = m;
-            o.Ax = -(m * p.G * muEff + o.FDrag) / m;
+            o.Ax = -(dir * (m * p.G * muEff + o.FDrag)) / m;
             o.FTractiveEff = 0;
-            double locked = m * p.G * muEff;
+            double locked = dir * m * p.G * muEff;
             fxF = -locked * fzF / w;
             fxR = -locked - fxF;
         }
@@ -547,10 +584,10 @@ public sealed class VehicleDynamics
             o.Branch = DriveBranch.Brake;
             o.MassEquivalent = m * (1 + p.BrakeMassFactor);
             o.FBrake = fBrakeMax * brake;
-            o.Ax = -(o.FBrake + fRes) / o.MassEquivalent;
+            o.Ax = -(dir * o.FBrake + fRes) / o.MassEquivalent;
             o.FTractiveEff = 0;
-            fxF = -o.FBrake * fzF / w;
-            fxR = -o.FBrake - fxF;
+            fxF = -dir * o.FBrake * fzF / w;
+            fxR = -dir * o.FBrake - fxF;
         }
         else if (throttle > p.ThrottleInputThreshold || !o.ClutchLocked)
         {
@@ -559,43 +596,47 @@ public sealed class VehicleDynamics
             o.MassEquivalent = mass;
             o.Ax = a;
             o.FTractiveEff = fEff;
-            fxF = Math.Min(tyre, gF);
+            fxF = Math.Clamp(tyre, -gF, gF);
             if (o.FTractive > 0) lonDemand = o.FxMax > 0 ? o.FTractive / o.FxMax : 10;
         }
         else
         {
             o.Branch = DriveBranch.Coast;
             o.MassEquivalent = driveMass;
-            o.Ax = -(fRes + o.FEngineBrake) / o.MassEquivalent;
+            o.Ax = -(fRes + dir * o.FEngineBrake) / o.MassEquivalent;
             o.FTractiveEff = 0;
-            fxF = -o.FEngineBrake;
+            fxF = -dir * o.FEngineBrake;
         }
 
         // Lateral tyre forces within what the longitudinal forces leave of each friction circle.
         double fyMaxF = Math.Sqrt(Math.Max(0, gF * gF - fxF * fxF));
         double fyMaxR = Math.Sqrt(Math.Max(0, gR * gR - fxR * fxR));
-        double vxSafe = Math.Max(v, 0.5);
         double vy = s.Vy, r = s.YawRate;
-        o.AlphaFront = delta - Math.Atan2(vy + lf * r, vxSafe);
-        o.AlphaRear = -Math.Atan2(vy - lr * r, vxSafe);
+        double cosD = Math.Cos(delta), sinD = Math.Sin(delta);
+        double eps2 = p.SlipVelocityEpsilon * p.SlipVelocityEpsilon;
+        double vyFront = vy + lf * r;
+        double uF = v * cosD + vyFront * sinD;     // front wheel frame: along the wheel
+        double wF = -v * sinD + vyFront * cosD;    // and across it
+        o.AlphaFront = -Math.Atan2(wF, Math.Sqrt(uF * uF + eps2));
+        o.AlphaRear = -Math.Atan2(vy - lr * r, Math.Sqrt(v * v + eps2));
         double linF = p.CorneringStiffnessFront * o.AlphaFront;
         double linR = p.CorneringStiffnessRear * o.AlphaRear;
         o.FyFront = fyMaxF > 0 ? fyMaxF * Math.Tanh(linF / fyMaxF) : 0;
         o.FyRear = fyMaxR > 0 ? fyMaxR * Math.Tanh(linR / fyMaxR) : 0;
 
-        double cosD = Math.Cos(delta), sinD = Math.Sin(delta);
         double fyFrontBody = o.FyFront * cosD + fxF * sinD;
         double coupling = fxF * (cosD - 1) - o.FyFront * sinD;
-        o.Ax = o.Ax + coupling / o.MassEquivalent + vy * r;
+        o.Ax = o.Ax + coupling / o.MassEquivalent;
+        o.VxDot = o.Ax + vy * r;
         double fyBody = fyFrontBody + o.FyRear;
-        o.VyDot = fyBody / m - v * r;
+        o.Ay = fyBody / m;
+        o.VyDot = o.Ay - v * r;
         o.YawAccel = (lf * fyFrontBody - lr * o.FyRear) / p.YawInertia;
 
-        o.Ay = fyBody / m;
         o.YawRate = r;
         o.Vx = v;
         o.Vy = vy;
-        o.Beta = v > 0 || vy != 0 ? Math.Atan2(vy, v) : 0;
+        o.Beta = v != 0 || vy != 0 ? Math.Atan2(vy, v) : 0;
         o.Fy = fyBody;
         o.FGrip = gF + gR;
         o.FyDemand = Math.Abs(linF) + Math.Abs(linR);
@@ -607,5 +648,18 @@ public sealed class VehicleDynamics
         double useR = gR > 0 ? Math.Sqrt(fxR * fxR + o.FyRear * o.FyRear) / gR : 0;
         o.GripUsage = Math.Max(useF, useR);
         o.SlipIndicator = Math.Min(10, Math.Max(lonDemand, Math.Max(demandF, demandR)));
+    }
+
+    /// <summary>
+    /// Friction capacity of an axle with load <paramref name="fzAxle"/> and lateral load transfer
+    /// <paramref name="dLat"/> (outer tyre +dLat, inner −dLat), each tyre with load-sensitive friction.
+    /// Since Σ F_zi² ≥ F_z²/2, the capacity never exceeds μ F_z.
+    /// </summary>
+    private static double AxleGrip(VehicleParameters p, double mu, double fzAxle, double dLat, double fzNominal)
+    {
+        double outer = Math.Max(0, 0.5 * fzAxle + dLat), inner = Math.Max(0, 0.5 * fzAxle - dLat);
+        double k = p.TyreLoadSensitivity;
+        double Coefficient(double fz) => Math.Max(0.2, 1 - k * (fz - fzNominal) / fzNominal);
+        return mu * (outer * Coefficient(outer) + inner * Coefficient(inner));
     }
 }

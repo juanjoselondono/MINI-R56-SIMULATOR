@@ -125,10 +125,14 @@ public class DynamicModelTests
     [Fact]
     public void Dynamic_LowSpeed_FollowsKinematicModel()
     {
-        var p = new VehicleParameters { ClutchLaunch = false };
-        var d = Car(p, 1.0, 1);
-        d.Step(new VehicleInputs { SteerAngle = 0.2, Throttle = 0.02 }, 0.005);
-        Assert.Equal(d.State.V * Math.Tan(0.2) / p.Wheelbase, d.State.YawRate, 12);
+        var p = VehicleParameters.GameDefaults(); // clutch open at this speed: only rolling resistance slows the car
+        // Below the blend band the lateral states relax (τ = 0.2 s) onto the kinematic single-track values.
+        var d = Car(p, 0.45, 1);
+        for (int i = 0; i < 200; i++) d.Step(new VehicleInputs { SteerAngle = 0.2 }, 0.005);
+        double rKin = d.State.V * Math.Tan(0.2) / p.Wheelbase;
+        _out.WriteLine($"v_x {d.State.V:F4} m/s: r {d.State.YawRate:F5} vs kinematic {rKin:F5}");
+        Assert.True(d.State.V > 0.1);
+        Assert.Equal(rKin, d.State.YawRate, rKin * 0.05);
     }
 
     [Fact]
@@ -150,7 +154,8 @@ public class DynamicModelTests
             d.Step(u, 0.005);
             var s = d.State;
             Assert.True(double.IsFinite(s.V) && double.IsFinite(s.Vy) && double.IsFinite(s.YawRate) && double.IsFinite(s.X));
-            Assert.True(s.V >= 0);
+            // v_x may be negative while the body slides backwards in a spin; the speed stays physical.
+            Assert.True(d.Speed < 80);
             Assert.True(s.EngineRpm >= p.IdleRpm - 1e-9 || s.EngineBlown);
         }
     }
@@ -263,14 +268,78 @@ public class DynamicModelTests
     }
 
     [Fact]
-    public void GameDefaults_OnlyChangeTheMass()
+    public void GameDefaults_OnlyChangeMassAndFriction()
     {
         var g = VehicleParameters.GameDefaults();
         Assert.Equal(1150, g.Mass);
+        Assert.Equal(1.05, g.Mu);
         g.Mass = 1420;
+        g.Mu = 0.9;
         Assert.Equal(ConfigSerializer.ToJson(new VehicleParameters()), ConfigSerializer.ToJson(g));
         var back = ConfigSerializer.FromJson(ConfigSerializer.ToJson(VehicleParameters.GameDefaults()));
         Assert.Equal(LateralModel.Dynamic, back.LateralModel);
         Assert.Equal(LaunchModel.PhysicalClutch, back.LaunchModel);
+    }
+
+    /// <summary>
+    /// Regression for the spin glitch (2026-10-20): a car spinning at speed must keep sliding and rotating smoothly —
+    /// no velocity snap to zero, no yaw-rate jumps — and decelerate at a friction-like rate.
+    /// </summary>
+    [Theory]
+    [InlineData(0.0, 0.0)]
+    [InlineData(1.0, 0.0)]
+    [InlineData(0.0, 0.6)]
+    public void Spin_SlidesSmoothlyWithoutSnapping(double throttle, double brake)
+    {
+        var p = VehicleParameters.GameDefaults();
+        var d = new Dyn(p, new VehicleState { V = 22, Vy = -3, YawRate = 2.5, Gear = 3, ClutchLocked = true, Time = 0 });
+        double maxBeta = 0, maxDu = 0, maxDr = 0, minVx = double.MaxValue, prevU = d.Speed, prevR = d.State.YawRate;
+        double speedAt05 = 0;
+        for (int i = 0; i < 1600; i++)
+        {
+            d.Step(new VehicleInputs { Throttle = throttle, Brake = brake, SteerAngle = 0.1 }, 0.005);
+            var s = d.State;
+            Assert.True(double.IsFinite(s.V) && double.IsFinite(s.Vy) && double.IsFinite(s.YawRate));
+            maxDu = Math.Max(maxDu, Math.Abs(d.Speed - prevU));
+            maxDr = Math.Max(maxDr, Math.Abs(s.YawRate - prevR));
+            minVx = Math.Min(minVx, s.V);
+            maxBeta = Math.Max(maxBeta, Math.Abs(d.Outputs.Beta));
+            prevU = d.Speed;
+            prevR = s.YawRate;
+            if (i == 99) speedAt05 = d.Speed;
+        }
+        _out.WriteLine($"thr {throttle} brk {brake}: max |β| {maxBeta:F2} rad, min v_x {minVx:F2} m/s, speed 22.2 → {speedAt05:F2} (0.5 s) → {d.Speed:F2} (8 s), max |ΔU|/step {maxDu:F4}, max |Δr|/step {maxDr:F4}");
+        Assert.True(maxBeta > Math.PI / 2, "the car must actually spin (velocity more than 90° off the heading)");
+        // Sliding deceleration is bounded by friction: ≤ ~1.3 μ g per step (brakes add their share).
+        Assert.True(maxDu < 1.3 * p.Mu * p.G * 0.005 + 0.02, $"speed jump {maxDu}");
+        Assert.True(maxDr < 0.25, $"yaw-rate jump {maxDr}");
+        Assert.True(speedAt05 > 12, "the slide must not stop abruptly");
+    }
+
+    /// <summary>Slow ramp steer at constant speed and when coasting: the FRONT axle saturates first (FWD limit understeer).</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void LimitBalance_IsUndersteer(bool holdSpeed)
+    {
+        var p = VehicleParameters.GameDefaults();
+        var d = Car(p, 22, 3);
+        d.State = d.State with { ClutchLocked = true };
+        string first = "none";
+        double ayFirst = 0, ayMax = 0;
+        int n = holdSpeed ? 2400 : 600;   // coasting: ramp faster so the speed is still high at the limit
+        for (int i = 0; i < n; i++)
+        {
+            double delta = 0.2 * i / n;
+            var u = holdSpeed ? Cruise(d, 22, delta) : new VehicleInputs { SteerAngle = delta };
+            d.Step(u, 0.005);
+            ayMax = Math.Max(ayMax, d.Outputs.Ay);
+            if (first != "none") continue;
+            if (d.Outputs.Understeer) { first = "front"; ayFirst = d.Outputs.Ay; }
+            else if (d.Outputs.Oversteer) { first = "rear"; ayFirst = d.Outputs.Ay; }
+        }
+        _out.WriteLine($"hold speed {holdSpeed}: first saturated axle = {first} (a_y {ayFirst / p.G:F2} g); peak a_y {ayMax / p.G:F2} g; no oversteer flag after: {!d.Outputs.Oversteer}");
+        Assert.Equal("front", first);
+        Assert.True(ayMax > 0.85 * p.G, "the car should corner at more than 0.85 g");
     }
 }
