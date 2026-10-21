@@ -100,13 +100,14 @@ The car starts at rest on the start/finish line. The lap clock starts when the c
 | A D / ← → | left stick X (analog) | steer. Stick response is \|x\|^1.5 for precision near centre. A speed-sensitive input assist divides the command by 1 + (V/25 m/s)²; the model still clamps δ to δ_max. |
 | E / Q | RB / LB | shift up / down (manual) |
 | T | – | toggle auto-shift (model.m gear rule: lowest gear whose 6500-rpm speed ≥ V) |
-| R | Back | restart: grid, at rest, laps cleared, engine repaired |
-| Backspace | B | recover to the nearest centreline point at rest. The lap becomes invalid and engine damage is kept. There is no reverse gear in the model. |
+| R | Back (Select) | restart: grid, at rest, laps cleared, engine and transmission repaired |
+| Backspace | B | recover to the nearest centreline point at rest. The lap becomes invalid and engine or transmission damage is kept. |
+| X | X | reverse on/off (Getrag G255 / GS6-55BG reverse, 3.143). It engages up to 10 km/h against the direction of travel; above that the transmission is destroyed (no torque, "Transmission Damaged! Press R to restart"). R / Back (Select) restarts and repairs. Needs the dynamic lateral model (default). |
 | P | Start | pause / resume the simulation clock (shift presses while paused are ignored) |
 | C | Y | cycle camera: chase → bonnet → cockpit (driver's eye, through the glass) |
 | H | – | headlights |
-| L | D-pad up | racing line on/off: green = accelerate, yellow = coast/transition, red = heavy braking (reference lap for the current setup) |
-| F5 | X | start / stop telemetry recording |
+| L | A, D-pad up | racing line on/off: green = accelerate, yellow = coast/transition, red = heavy braking (reference lap for the current setup). The source is chosen in the setup panel (Tab): optimised minimum-curvature line (default), the track's reference line, or the best lap of a telemetry CSV. |
+| F5 | – | start / stop telemetry recording (the pad's X is now reverse) |
 | Tab | – | vehicle setup panel |
 | F2 | – | telemetry dashboard |
 | F3 | – | run comparison |
@@ -166,9 +167,9 @@ failure) are in the `event` column.
 These go after `--`. They skip the main menu.
 
 ```bash
-# In-game self-test on all tracks (39 checks), deterministic; exit code 0 = all pass
+# In-game self-test on all tracks (48 checks), deterministic; exit code 0 = all pass
 $GODOT --headless --fixed-fps 60 --path . -- --selftest
-# Only the Monaco suite (10 checks), e.g. after re-converting the track
+# Only the Monaco suite (11 checks), e.g. after re-converting the track
 $GODOT --headless --fixed-fps 60 --path . -- --selftest --selftest-only=Monaco
 
 # Full throttle with auto-shift for N simulated seconds; prints the physical state and quits.
@@ -183,6 +184,9 @@ $GODOT --path . --resolution 1600x900 -- --track=Circuit --demo --shots=/tmp/sho
 
 # Average frame time and physics cost over N frames
 $GODOT --path . -- --track=Circuit --demo --perf=300
+
+# Racing line source: optimised (default), reference, or a telemetry CSV exported by the game (fastest valid lap)
+$GODOT --path . -- --track=Monaco --racing-line=$HOME/.local/share/godot/app_userdata/R56\ Vehicle\ Dynamics\ Simulator/runs/my_lap.csv
 
 # Open panels at start (screenshots): setup, telemetry, compare, help
 $GODOT --path . -- --track=Oval --show-panels=setup,telemetry

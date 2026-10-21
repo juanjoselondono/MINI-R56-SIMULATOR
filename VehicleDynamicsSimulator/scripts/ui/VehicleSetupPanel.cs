@@ -25,6 +25,8 @@ public partial class VehicleSetupPanel : PanelContainer
     private Button _pause = null!;
     private LineEdit _saveName = null!;
     private OptionButton _configs = null!;
+    private OptionButton _lineSource = null!;
+    private FileDialog _csvDialog = null!;
     private bool _syncing;
 
     public void Init(SimulationManager sim)
@@ -62,6 +64,41 @@ public partial class VehicleSetupPanel : PanelContainer
         loadRow.AddChild(UiTheme.Button("Load Configuration", LoadConfig, "Loads into the editor; press Apply to use it"));
         loadRow.AddChild(UiTheme.Button("⟳", RefreshConfigList, "Rescan the configuration folder"));
         outer.AddChild(loadRow);
+
+        // Racing line source (driver aid; independent of the vehicle parameters, applied immediately).
+        var lineRow = new HBoxContainer();
+        lineRow.AddChild(UiTheme.Label("Racing line", 13, UiTheme.Accent));
+        _lineSource = new OptionButton { SizeFlagsHorizontal = SizeFlags.ExpandFill, FocusMode = FocusModeEnum.None };
+        _lineSource.AddItem("Optimised (minimum curvature)", (int)RacingLineSource.Optimised);
+        _lineSource.AddItem("Track reference line (AC AI line / centreline)", (int)RacingLineSource.TrackReference);
+        _lineSource.AddItem("Best lap from telemetry CSV…", (int)RacingLineSource.RecordedLap);
+        _lineSource.Select(_lineSource.GetItemIndex((int)GameSession.RacingLineSource));
+        _lineSource.ItemSelected += i =>
+        {
+            var src = (RacingLineSource)_lineSource.GetItemId((int)i);
+            if (src == RacingLineSource.RecordedLap) { _csvDialog.PopupCentered(new Vector2I(900, 600)); return; }
+            GameSession.RacingLineSource = src;
+            _sim.BuildRacingLine();
+            _status.Text = "Racing line: " + _sim.RacingLineInfo;
+        };
+        lineRow.AddChild(_lineSource);
+        outer.AddChild(lineRow);
+        _csvDialog = new FileDialog
+        {
+            FileMode = FileDialog.FileModeEnum.OpenFile, Access = FileDialog.AccessEnum.Filesystem,
+            Filters = new[] { "*.csv ; Telemetry CSV" }, Title = "Best lap: telemetry CSV exported by the game",
+            CurrentDir = SimulationManager.RunsDirectory,
+        };
+        _csvDialog.FileSelected += path =>
+        {
+            GameSession.RacingLineCsv = path;
+            GameSession.RacingLineSource = RacingLineSource.RecordedLap;
+            _sim.BuildRacingLine();
+            _status.Text = "Racing line: " + _sim.RacingLineInfo;
+            _lineSource.Select(_lineSource.GetItemIndex((int)(_sim.RacingLineInfo.StartsWith("best lap") ? RacingLineSource.RecordedLap : RacingLineSource.Optimised)));
+        };
+        _csvDialog.Canceled += () => _lineSource.Select(_lineSource.GetItemIndex((int)GameSession.RacingLineSource));
+        AddChild(_csvDialog);
 
         _status = UiTheme.Label("", 12, UiTheme.Muted);
         _status.AutowrapMode = TextServer.AutowrapMode.WordSmart;

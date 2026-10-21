@@ -154,6 +154,15 @@ OBJ imports uncompressed (16-bit position quantisation over a 1.5 km box would b
 
 ### 4.2 Racing line (driver aid)
 
+Line source (`GameSession.RacingLineSource`, setup panel or `--racing-line=`):
+- `Optimised`: `RacingLineOptimizer` (vehicle_model §22). On mesh tracks it runs inside `MeshTrack.WallBoundedCorridor`,
+  which casts horizontal rays to the WALL layer every 2 m. It is cached per track.
+- `TrackReference`: the track's reference line.
+- `RecordedLap`: `RecordedLapLine.FromTelemetryCsv`. If the CSV is unusable, a message is shown and the optimised line is
+  used instead.
+
+`SimulationManager.RacingLineTrack` is the drawn line; `--demo` drives along it.
+
 `SimulationManager.BuildRacingLine` runs on every track load and setup change. `ReferenceLap.Compute` (core,
 vehicle_model §20) produces the profile, and `RacingLine` (a `MeshInstance3D`) draws it:
 - a 0.55 m ribbon, sampled every 1 m, 6 cm above the collision surface;

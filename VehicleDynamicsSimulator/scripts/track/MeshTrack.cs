@@ -105,6 +105,53 @@ public partial class MeshTrack : Node3D
     }
 
     /// <summary>
+    /// Horizontal distance from (x, y) along the model-frame direction (dx, dy) to the nearest WALL surface, at 0.5 m
+    /// above the ground at <paramref name="height"/>; <paramref name="maxDistance"/> if none.
+    /// </summary>
+    public double WallDistance(double x, double y, float height, double dx, double dy, double maxDistance)
+    {
+        var from = VehicleModelAdapter.ToGodotPosition(x, y, height + 0.5f);
+        var to = VehicleModelAdapter.ToGodotPosition(x + dx * maxDistance, y + dy * maxDistance, height + 0.5f);
+        var hit = Ray(from, to, TrackManager.BarrierCollisionLayer);
+        return hit.Count > 0 ? from.DistanceTo((Vector3)hit["position"]) : maxDistance;
+    }
+
+    /// <summary>
+    /// The racing line's corridor: the AC line with its edge distances (fast_lane.ai) tightened to the walls of the
+    /// physics mesh. At Monaco the walls often stand inside the AC edges (street circuit), so a line that uses the full
+    /// AC width would touch them. Each station casts horizontal rays left and right; the limit is
+    /// min(AC edge, wall distance − <paramref name="wallClearance"/>). With the optimiser's 1.2 m margin the CG line stays
+    /// ≥ 2.0 m from walls: the 3.76 m long body sweeps ≈ 1.4 m out from its centreline when yawed ~20° to a wall in a
+    /// tight corner, plus driver tracking error. Lap validity still uses the AC edges.
+    /// </summary>
+    public PolylineTrack WallBoundedCorridor(double spacing = 2.0, double wallClearance = 0.8)
+    {
+        int n = Math.Max(16, (int)Math.Round(Line.Length / spacing));
+        var x = new double[n]; var y = new double[n]; var l = new double[n]; var r = new double[n];
+        float hint = ProbeGroundHeight(Line.Pose(0).X, Line.Pose(0).Y) ?? _groundHeight;
+        int tightened = 0;
+        for (int i = 0; i < n; i++)
+        {
+            double s = Line.Length * i / n;
+            var p = Line.Pose(s);
+            hint = GroundHeightNear(p.X, p.Y, hint) ?? hint;
+            var (left, right) = Line.Limits(s);
+            double nx = -Math.Sin(p.Psi), ny = Math.Cos(p.Psi);
+            double wl = WallDistance(p.X, p.Y, hint, nx, ny, left + 5) - wallClearance;
+            double wr = WallDistance(p.X, p.Y, hint, -nx, -ny, right + 5) - wallClearance;
+            if (wl < left || wr < right) tightened++;
+            x[i] = p.X; y[i] = p.Y;
+            l[i] = Math.Max(0, Math.Min(left, wl));
+            r[i] = Math.Max(0, Math.Min(right, wr));
+        }
+        CorridorTightenedShare = (double)tightened / n;
+        return new PolylineTrack(Line.Name, x, y, l, r);
+    }
+
+    /// <summary>Share of corridor stations where a wall stands inside the AC edge (diagnostics).</summary>
+    public double CorridorTightenedShare { get; private set; }
+
+    /// <summary>
     /// Snaps the ground tracking to (x, y) after a teleport (restart, recover): the per-step rays then search around
     /// the probed elevation. Returns that elevation.
     /// </summary>

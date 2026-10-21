@@ -8,6 +8,7 @@ namespace VehicleDynamics.Core.Simulation;
 public sealed class SimulationLoop
 {
     private bool _pendingUp;
+    private bool _pendingReverse;
     private bool _pendingDown;
 
     public VehicleDynamics Vehicle { get; }
@@ -38,13 +39,15 @@ public sealed class SimulationLoop
     {
         _pendingUp |= levels.ShiftUp;
         _pendingDown |= levels.ShiftDown;
+        _pendingReverse |= levels.ToggleReverse;
         int n = Clock.Advance(frameTime);
         for (int i = 0; i < n; i++)
         {
             var u = levels;
             u.ShiftUp = _pendingUp;
             u.ShiftDown = _pendingDown;
-            _pendingUp = _pendingDown = false;
+            u.ToggleReverse = _pendingReverse;
+            _pendingUp = _pendingDown = _pendingReverse = false;
             if (BeforeStep != null) u = BeforeStep(Vehicle, u);
             PreviousState = Vehicle.State;
             Vehicle.Step(u, Clock.FixedDt);

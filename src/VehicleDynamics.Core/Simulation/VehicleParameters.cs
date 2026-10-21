@@ -65,6 +65,17 @@ public sealed class VehicleParameters
     public double EngineBrakeTorque { get; set; } = 30;
     public double MoneyShiftRpm { get; set; } = 7200;
     public bool MechanicalDamage { get; set; } = true;
+    /// <summary>
+    /// EXTENSION R1: reverse gear ratio of the MINI Cooper (N16, 6-speed manual, Getrag G255 / GS6-55BG).
+    /// Source: BMW Group, "Technical Data – MINI Hatch", MINI UK 03/2011 (reverse 3.143; forward ratios and final drive
+    /// 4.35 match model.m). model.m has no reverse gear.
+    /// </summary>
+    public double ReverseRatio { get; set; } = 3.143;
+    /// <summary>
+    /// EXTENSION R1 (game rule): reverse (or 1st, from reverse) engages only up to this speed against the direction of
+    /// travel [m/s]; above it, with <see cref="MechanicalDamage"/>, the transmission is destroyed. 10 km/h.
+    /// </summary>
+    public double ReverseEngageMaxSpeed { get; set; } = 10 / 3.6;
     public double BrakeInputThreshold { get; set; } = 0.05;
     public double ThrottleInputThreshold { get; set; } = 0.01;
 
@@ -270,6 +281,8 @@ public sealed class VehicleParameters
         R(nameof(ClutchThrottleThreshold), ClutchThrottleThreshold, 0, 1);
         R(nameof(EngineBrakeTorque), EngineBrakeTorque, 0, 500);
         R(nameof(MoneyShiftRpm), MoneyShiftRpm, FuelCutRpm, 30000);
+        R(nameof(ReverseRatio), ReverseRatio, 0.5, 8);
+        R(nameof(ReverseEngageMaxSpeed), ReverseEngageMaxSpeed, 0, 30);
         R(nameof(BrakeInputThreshold), BrakeInputThreshold, 0, 1);
         R(nameof(ThrottleInputThreshold), ThrottleInputThreshold, 0, 1);
         R(nameof(MaxSteerAngle), MaxSteerAngle, 0.01, 0.7);

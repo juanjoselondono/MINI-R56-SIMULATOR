@@ -43,6 +43,8 @@ public struct VehicleOutputs
     /// <summary>E4: the rear axle saturates before the front.</summary>
     public bool Oversteer;
     public bool EngineBlownThisStep;
+    /// <summary>EXTENSION R1: the transmission was destroyed in this step.</summary>
+    public bool TransmissionDamagedThisStep;
 
     // E4 dynamic single-track
     public double AlphaFront;

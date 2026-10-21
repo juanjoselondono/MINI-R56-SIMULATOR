@@ -378,7 +378,8 @@ but unused), aerodynamic lift and wind, banking, kerbs and off-road surfaces, co
 | C1 | Correction of model.m §7: grip limit on the tyre force, §17 | user-approved 2026-10-20 |
 | E6 | Per-step road grade and track-supplied surface friction, §18 | Monaco integration 2026-10-20 |
 | E3b | Rigid-body wall impact with restitution, wall friction and yaw (E4 model), §19 | user request 2026-10-20 |
-| RL | Reference lap for the racing-line aid (quasi-steady speed profile), §20 | user request 2026-10-20; driver aid, not physics |
+| RL | Reference lap for the racing-line aid (quasi-steady speed profile), §20; racing-line geometry, §22 | user requests 2026-10-20/21; driver aid, not physics |
+| R1 | Reverse gear (3.143, Getrag G255 / GS6-55BG) and transmission damage, §21 | user request 2026-10-21 |
 | S1 | (Optional since 2026-10-20: `LaunchModel = SeedRule`.) Clutch-slip launch: gear 1, wheel rpm < 3500, throttle > 0.1 → rpm = max(wheel, 1000 + throttle·2500) | monaco.html l. 209–215 |
 | S2 | Torque clamp rpm < 1000 → T(1000) | monaco.html `getTorque` |
 | S3 | Fuel cut rpm ≥ 6500 → T = 0; limiter flag for HUD/audio | monaco.html `getTorque` + l. 218–223 (rpm remap dropped) |
@@ -636,3 +637,59 @@ accelerations at that speed. That gives the reference throttle and brake:
 
 The lateral side is a point mass: no tyre slip and no load transfer. The lap time is therefore an estimate, not a
 validated result (Monaco: 139.8 s; Oval: 43.0 s with the game parameters).
+
+## 21. R1: reverse gear and transmission damage
+
+**Ratio.** The ratio is $i_R = 3.143$. Source: BMW Group, *Technical Data – MINI Hatch*, MINI UK 03/2011, column MINI
+Cooper (N16B16M0, M6, gearbox Getrag G255). The forward ratios 3.214 / 1.792 / 1.194 / 0.914 / 0.784 / 0.683 and the
+final drive 4.35 in the same column are model.m's values. The total ratio is $i_R\,i_{fd}$.
+
+**Formulation.** Let $\sigma = -1$ in reverse ($+1$ otherwise). The driveline works with the speed along the gear's
+direction, $\sigma v_x$:
+- wheel-side engine speed $\omega_{in} = \sigma v_x\, i_R i_{fd}/R_w$;
+- clutch (E5) and engine map as in 1st gear;
+- tractive force along the gear's direction, so $a_x = \sigma\,a(\,F_{trac},\ \sigma F_{res}\,)$ with model.m's drive
+  formula $a(\cdot)$ (and C1).
+
+For $\sigma = +1$ this is the unchanged model. The rotating-mass factor of 1st gear (0.50) is used, because model.m has
+none for reverse and the ratios are close; this is an assumption. Resistances, brakes and engine braking oppose the
+actual direction of travel (E4 direction factor). Near $v_x = 0$ a car that is not sliding is treated as moving in the
+gear's direction, so it is held at rest in either gear. The "stop at 0" rule is mirrored: in reverse $v_x$ does not
+cross from $\le 0$ to $> 0$ unless the body slides. Reverse needs E4, because E1 has no $v_x < 0$ kinematics. With E1 the
+toggle is ignored.
+
+**Engaging.** The toggle engages reverse from a forward gear if $v_x \le 10$ km/h, and 1st from reverse if
+$-v_x \le 10$ km/h. Otherwise, with `MechanicalDamage`, the transmission is destroyed (`TransmissionDamaged`):
+- engine at idle, torque 0, no tractive force, no engine braking;
+- driveline mass reduced to the bare mass;
+- shifting disabled.
+
+Brakes, tyres and resistances still act. Only a restart clears it.
+
+Verified (`ReverseGearTests`):
+- at equal engine speed (2195.6 rpm) the tractive force in reverse / 1st = $i_R/i_1$ = 3.143/3.214 exactly
+  (5771.7 vs 5902.0 N);
+- 4 s of full throttle in reverse: −51.7 km/h; reverse is limited by the fuel cut to about 54 km/h;
+- reversing with left lock gives $r < 0$;
+- parked in reverse the car does not creep;
+- the 10 km/h threshold and the damage behaviour.
+
+## 22. Racing-line geometry (driver aid)
+
+The ribbon and the reference lap (§20) follow one of three lines:
+1. **Optimised (default):** `RacingLineOptimizer.MinimumCurvature`. Lateral offsets $n_i$ from the track's reference line
+   minimise $\sum |P_{i-1} - 2P_i + P_{i+1}|^2$ (discrete $\int\kappa^2$). The constraint is $-(r_i - m) \le n_i \le l_i - m$,
+   with margin $m = 1.2$ m (body half width 0.84 m plus clearance). It is solved by projected Gauss–Seidel with
+   over-relaxation, coarse to fine, and re-solved three times around its own result to remove the equal-spacing bias.
+   On mesh tracks $l_i, r_i$ are first reduced to the wall distances of the physics mesh minus 0.8 m, so the CG line
+   stays ≥ 2.0 m from walls: a yawed 3.76 m body sweeps about 1.4 m out, plus tracking error.
+2. **Track reference:** the AC AI line (Monaco) or the centreline.
+3. **Recorded lap:** the fastest valid lap of a telemetry CSV (`lap:N:T:valid` event; otherwise the longest completed
+   lap), resampled every 1 m and smoothed over ±2 m.
+
+Reference-lap estimates, game parameters (optimised vs reference line): Oval 40.40 vs 42.82 s, Circuit 73.48 vs 84.17 s.
+
+A reweighted variant aiming at the peak curvature ($|\kappa|^{p-2}$ weights, $p = 4$–8) was tried and rejected: it was
+slower on both tracks and produced kinks.
+
+Lap timing and track-limit checks always use the track's own reference line.

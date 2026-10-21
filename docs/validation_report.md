@@ -630,3 +630,31 @@ Unit tests: `VehicleDynamics.Tests` **122/122** (6 new), `GameLogic.Tests` **11/
 The barrier checks on the procedural tracks now report a larger loss of forward speed at the first impact (Oval
 20.9 → 6.2 m/s v_x, previously 14.5). The rotation turns part of the velocity sideways, and the wall friction removes
 more. All barrier invariants still hold: impulses only on contact entry, no gain in energy, no tunnelling.
+
+## 16. Reverse gear, transmission damage, racing-line geometry (2026-10-21)
+
+Unit tests: `VehicleDynamics.Tests` **140/140** (18 new), `GameLogic.Tests` **11/11**. The golden MATLAB comparison is
+unchanged: forward gears go through the same arithmetic (σ = +1). Self-test **48/48** (Oval 18, Circuit 18, UI 1,
+Monaco 11).
+
+| Test | Result |
+|---|---|
+| Reverse ratio | 3.143 (BMW Group MINI UK technical data 03/2011, Getrag G255); total 3.143 × 4.353 |
+| Torque multiplication | equal engine speed 2195.6 rpm: F_R / F_1 = 3.143/3.214 exactly (5771.7 / 5902.0 N) |
+| Reverse from rest, full throttle 4 s | −51.7 km/h, engine 6163 rpm; brakes stop it at 0 and it stays there |
+| Parked in reverse, 10 s | v = 0, x = 0 (no creep) |
+| Toggle at 15 / 10.5 / 9 / 0 km/h | damaged / damaged / reverse / reverse |
+| Damaged transmission | engine torque 0, F_tractive 0, engine braking 0, throttle ignored, shifting dead, brakes stop the car |
+| From reverse at −10+ km/h to 1st | damaged; at −3 km/h: 1st engaged |
+| E1 model / MechanicalDamage off | toggle ignored |
+| In game: pad X at rest, RT | gear R, −7.3 km/h |
+| In game: pad X at 20.1 km/h | damaged, torque 0, F_tractive 0, full throttle 20.2 → 20.0 km/h; pad Back → repaired, at rest |
+| In game: pad A | racing line hidden / shown |
+| Minimum-curvature line, Oval | outside −5.80 m → apex +5.80 m → outside −5.80 m; reference lap 40.40 s vs 42.82 s |
+| Minimum-curvature line, Circuit | within limits − margin to 0.04 m; reference lap 73.47 s vs 84.17 s |
+| Recorded-lap CSV | fastest valid lap picked by its event; fallback without events; foreign CSV rejected |
+| Same scripted driver on the optimised vs reference line | Oval 55.62 vs 60.20 s; Circuit 94.76 vs 111.61 s; Monaco 177.70 vs 190.19 s; all valid, 0 wall impacts |
+
+The first Monaco attempt used the bare AC edges and hit the walls 17 times; a wall clearance of 0.25 m still gave 4
+impacts. The impact log showed the cause: walls standing inside the AC edges, plus the corners of the yawed body and the
+driver's tracking error (up to 0.8 m). The final corridor keeps the CG line ≥ 2.0 m from walls.

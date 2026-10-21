@@ -127,6 +127,7 @@ public partial class SelfTest : Node
         var rec = lap ? _sim.Laps.Laps[0] : default;
         Check("scripted lap counted", lap && rec.Valid && _sim.Collisions.ImpulseCount == impulses0,
             lap ? $"lap {F(rec.Time, "0.00")} s, valid={rec.Valid}, impacts={_sim.Collisions.ImpulseCount - impulses0}" : "no lap within 300 s");
+        _referenceLap = lap ? rec.Time : double.NaN;
         Check("speedometer = physics state", Math.Abs(_sim.Telemetry.Latest.VKmh - D.State.V * 3.6) < 1e-9, $"{F(D.State.V * 3.6, "0.00")} km/h");
 
         // 4. CSV export round trip.
@@ -218,6 +219,7 @@ public partial class SelfTest : Node
 
         await GamepadChecks();
         await StandingStart();
+        await RacingLineLap();
     }
 
     /// <summary>
@@ -254,6 +256,41 @@ public partial class SelfTest : Node
         Button(JoyButton.LeftShoulder, true); await Frames(2); Button(JoyButton.LeftShoulder, false); await Frames(1);
         int gDown = D.State.Gear;
         Check("gamepad RB/LB shift", gUp == g0 + 1 && gDown == g0, $"gear {g0} → RB → {gUp} → LB → {gDown}");
+
+        // A: racing line on/off.
+        bool vis0 = _sim.RacingLine.Visible;
+        Button(JoyButton.A, true); await Frames(2); Button(JoyButton.A, false); await Frames(1);
+        bool vis1 = _sim.RacingLine.Visible;
+        Button(JoyButton.A, true); await Frames(2); Button(JoyButton.A, false); await Frames(1);
+        Check("gamepad A racing line toggle", vis1 == !vis0 && _sim.RacingLine.Visible == vis0, $"visible {vis0} → A → {vis1} → A → {_sim.RacingLine.Visible}");
+
+        // X: reverse at rest, drive backwards with RT.
+        _sim.RestartSimulation();
+        await Frames(2);
+        Button(JoyButton.X, true); await Frames(2); Button(JoyButton.X, false); await Frames(1);
+        bool inR = D.State.InReverse;
+        Axis(JoyAxis.TriggerRight, 1f);
+        await Until(() => D.State.V < -2, 10);
+        Axis(JoyAxis.TriggerRight, 0f);
+        double vRev = D.State.V;
+        Check("gamepad X reverse (GS6-55BG R = 3.143)", inR && vRev < -2 && RaceHud.GearLabel(D.State) == "R" && !D.State.TransmissionDamaged,
+            $"gear {RaceHud.GearLabel(D.State)}, v_x {F(vRev * 3.6, "0.0")} km/h after RT");
+
+        // X above 10 km/h: transmission destroyed, no torque; Back (Select) restarts and repairs.
+        _sim.RestartSimulation();
+        V.AutoShift = true;
+        V.Autopilot = _ => (1, 0, 0);
+        await Until(() => D.State.V * 3.6 > 20, 10);
+        double vAt = D.State.V * 3.6;
+        Button(JoyButton.X, true); await Frames(2); Button(JoyButton.X, false); await Frames(2);
+        bool damaged = D.State.TransmissionDamaged;
+        double torque = D.Outputs.EngineTorque, ftr = D.Outputs.FTractive;
+        double v1 = D.State.V; await Frames(30); double v2 = D.State.V;
+        V.Autopilot = null;
+        V.AutoShift = false;
+        Button(JoyButton.Back, true); await Frames(2); Button(JoyButton.Back, false); await Frames(1);
+        Check("X above 10 km/h damages transmission", damaged && torque == 0 && ftr == 0 && v2 < v1 && !D.State.TransmissionDamaged && D.State.V == 0,
+            $"X at {F(vAt, "0.0")} km/h → damaged={damaged}, engine torque {F(torque)} N·m, F_tractive {F(ftr)} N, full throttle {F(v1 * 3.6, "0.0")} → {F(v2 * 3.6, "0.0")} km/h; Back → repaired, at rest");
         V.Autopilot = null;
     }
 
@@ -349,6 +386,7 @@ public partial class SelfTest : Node
         var rec = lap ? _sim.Laps.Laps[0] : default;
         Check("scripted lap on the AC line", lap,
             lap ? $"lap {F(rec.Time, "0.00")} s over {F(_sim.Track.Line.Length, "0")} m, valid={rec.Valid}, wall impacts={_sim.Collisions.ImpulseCount - imp0}" : "no lap within 400 s");
+        _referenceLap = lap ? rec.Time : double.NaN;
         Check("start/finish Area3D trigger", gateEvents >= 1 && entry != null && entry.Run.Samples.Any(r => r.Event?.Contains("sf_gate") == true),
             $"{gateEvents} gate event(s) logged with the lap timer's crossing");
         if (offAt.Count > 0) GD.Print("[selftest] OFFTRACK at s/lat: " + string.Join(" ", offAt.Where((_, i) => i % 20 == 0)));
@@ -420,6 +458,51 @@ public partial class SelfTest : Node
             $"{imps} impulse(s), consecutive {cm.ConsecutiveImpulses - c0}, CG crossed a wall: {tunnelled}; largest yaw-rate change from an impact {F(maxYawKick, "0.00")} rad/s");
         V.Autopilot = null;
         V.AutoShift = false;
+        _sim.RestartSimulation();
+        await RacingLineLap();
+    }
+
+    private double _referenceLap = double.NaN;
+
+    /// <summary>
+    /// The same scripted driver, now following the optimised racing line instead of the track's reference line: the lap
+    /// must be valid (track limits judged on the reference line), without wall impacts, and faster.
+    /// </summary>
+    private async Task RacingLineLap()
+    {
+        GameSession.RacingLineSource = RacingLineSource.Optimised;
+        _sim.BuildRacingLine();
+        _sim.RestartSimulation();
+        var driver = new CentrelineDriver(_sim.RacingLineTrack) { LateralMargin = _sim.Track.Mesh != null ? 0.6 : 0.75 };
+        V.AutoShift = true;
+        V.Autopilot = vc => driver.Drive(vc.Dynamics.State, vc.Dynamics.Outputs, vc.Parameters);
+        int imp0 = _sim.Collisions.ImpulseCount;
+        var where = new List<string>();
+        bool wasValid = true;
+        void OnHit(ImpactEvent e) => where.Add(FormattableString.Invariant(
+            $"impact s={_sim.Laps.Projection.S:0} lat={_sim.Laps.Projection.Lateral:0.0} line-dev={_sim.RacingLineTrack.Project(D.State.X, D.State.Y).Lateral:0.00} v={D.State.V * 3.6:0}"));
+        _sim.Collisions.Impact += OnHit;
+        var prevAfter = V.AfterStep;
+        V.AfterStep = (d, u) =>
+        {
+            prevAfter?.Invoke(d, u);
+            if (wasValid && !_sim.Laps.LapValid)
+            {
+                var (l, r) = _sim.Track.Line.Limits(_sim.Laps.Projection.S);
+                where.Add(FormattableString.Invariant($"invalid at s={_sim.Laps.Projection.S:0} lat={_sim.Laps.Projection.Lateral:0.00} limits +{l:0.00}/-{r:0.00} line-dev={_sim.RacingLineTrack.Project(d.State.X, d.State.Y).Lateral:0.00}"));
+                wasValid = false;
+            }
+        };
+        bool lap = await Until(() => _sim.Laps.Laps.Count > 0, 400);
+        V.AfterStep = prevAfter;
+        _sim.Collisions.Impact -= OnHit;
+        foreach (var w in where) GD.Print("[selftest] racing line: " + w);
+        var rec = lap ? _sim.Laps.Laps[0] : default;
+        int impacts = _sim.Collisions.ImpulseCount - imp0;
+        V.Autopilot = null;
+        V.AutoShift = false;
+        Check("scripted lap on the racing line", lap && rec.Valid && impacts == 0 && rec.Time < _referenceLap,
+            lap ? $"{_sim.RacingLineInfo}: lap {F(rec.Time, "0.00")} s vs {F(_referenceLap, "0.00")} s on the reference line, valid={rec.Valid}, wall impacts={impacts}; reference-lap estimate {F(_sim.RacingLine.LapTime, "0.0")} s" : "no lap within 400 s");
         _sim.RestartSimulation();
     }
 

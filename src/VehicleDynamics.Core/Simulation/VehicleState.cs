@@ -30,6 +30,16 @@ public struct VehicleState
     public double Distance;
     public double Time;
     public bool EngineBlown;
+    /// <summary>
+    /// EXTENSION R1: transmission destroyed by engaging a gear against the direction of travel (see
+    /// <see cref="VehicleInputs.ToggleReverse"/>). The driveline transmits no torque (no drive, no engine braking); the
+    /// engine idles, brakes and tyres still work. Cleared only by a restart (new state).
+    /// </summary>
+    public bool TransmissionDamaged;
+
+    /// <summary>Value of <see cref="Gear"/> for reverse (EXTENSION R1; model.m has no reverse gear).</summary>
+    public const int ReverseGear = -1;
+    public readonly bool InReverse => Gear == ReverseGear;
 
     public static VehicleState AtRest(double x = 0, double y = 0, double psi = 0) => new()
     {

@@ -10,6 +10,7 @@ using Simulator.Track;
 using Simulator.UI;
 using Simulator.Vehicle;
 using VehicleDynamics.Core.Simulation;
+using VehicleDynamics.Core.Track;
 
 namespace Simulator.Simulation;
 
@@ -19,8 +20,22 @@ public static class GameSession
     public static string TrackName { get; set; } = "Circuit";
     /// <summary>Optional configuration JSON (absolute path) to load at start.</summary>
     public static string? ConfigPath { get; set; }
-    /// <summary>Racing-line driver aid shown (L / D-pad up); kept across tracks and restarts.</summary>
+    /// <summary>Racing-line driver aid shown (L / A / D-pad up); kept across tracks and restarts.</summary>
     public static bool RacingLineVisible { get; set; } = true;
+    /// <summary>Where the racing line comes from (setup panel, or -- --racing-line=optimised|reference|&lt;csv&gt;).</summary>
+    public static RacingLineSource RacingLineSource { get; set; } = RacingLineSource.Optimised;
+    /// <summary>Telemetry CSV with the best lap, for <see cref="RacingLineSource.RecordedLap"/>.</summary>
+    public static string? RacingLineCsv { get; set; }
+}
+
+public enum RacingLineSource
+{
+    /// <summary>Minimum-curvature line inside the track limits (RacingLineOptimizer).</summary>
+    Optimised,
+    /// <summary>The track's own reference line: AC fast_lane (Monaco) or the centreline (procedural tracks).</summary>
+    TrackReference,
+    /// <summary>Fastest valid lap of a telemetry CSV exported by the game.</summary>
+    RecordedLap,
 }
 
 /// <summary>
@@ -70,6 +85,12 @@ public partial class SimulationManager : Node
         }
         var trackArg = OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--track="));
         if (trackArg != null) GameSession.TrackName = trackArg["--track=".Length..];
+        if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--racing-line=")) is { } rlArg)
+        {
+            string v = rlArg["--racing-line=".Length..];
+            GameSession.RacingLineSource = v switch { "optimised" => RacingLineSource.Optimised, "reference" => RacingLineSource.TrackReference, _ => RacingLineSource.RecordedLap };
+            if (GameSession.RacingLineSource == RacingLineSource.RecordedLap) GameSession.RacingLineCsv = v;
+        }
         LoadTrack(GameSession.TrackName);
 
         Input.JoyConnectionChanged += OnJoyConnectionChanged;
@@ -82,7 +103,7 @@ public partial class SimulationManager : Node
         if (args.Contains("--demo"))
         {
             // Scripted centreline driver through the normal input path (screenshots / attract mode).
-            var driver = new Dev.CentrelineDriver(Track.Line);
+            var driver = new Dev.CentrelineDriver(RacingLineTrack);
             Vehicle.AutoShift = true;
             Vehicle.Autopilot = vc => driver.Drive(vc.Dynamics.State, vc.Dynamics.Outputs, vc.Parameters);
         }
@@ -145,6 +166,11 @@ public partial class SimulationManager : Node
                 Telemetry.AddEvent($"shift:{_lastGear}->{d.State.Gear}");
                 _lastGear = d.State.Gear;
             }
+            if (d.Outputs.TransmissionDamagedThisStep)
+            {
+                Telemetry.AddEvent(FormattableString.Invariant($"transmission_damaged:v={d.State.V * 3.6:F1}kmh"));
+                Laps.InvalidateLap();
+            }
             if (d.State.EngineBlown && !_blownLogged)
             {
                 Telemetry.AddEvent("engine_blown");
@@ -163,15 +189,57 @@ public partial class SimulationManager : Node
     /// <summary>Driver-aid racing line for the current track and vehicle parameters.</summary>
     public RacingLine RacingLine { get; private set; } = null!;
 
-    private void BuildRacingLine()
+    /// <summary>The line the racing-line aid draws (and the demo driver follows).</summary>
+    public ITrackLine RacingLineTrack { get; private set; } = null!;
+    /// <summary>Human-readable source of <see cref="RacingLineTrack"/>.</summary>
+    public string RacingLineInfo { get; private set; } = "";
+
+    private static readonly System.Collections.Generic.Dictionary<string, ITrackLine> OptimisedCache = new();
+
+    /// <summary>Re-reads the racing-line source (GameSession) and rebuilds the line and its colours.</summary>
+    public void BuildRacingLine()
     {
         if (RacingLine == null)
         {
             RacingLine = new RacingLine { Name = "RacingLine" };
             AddChild(RacingLine);
         }
-        RacingLine.Build(Track.Line, Vehicle.Parameters, Track.Mesh);
+        RacingLineTrack = ResolveRacingLine(out string info);
+        RacingLineInfo = info;
+        RacingLine.Build(RacingLineTrack, Vehicle.Parameters, Track.Mesh);
         RacingLine.Visible = GameSession.RacingLineVisible;
+    }
+
+    private ITrackLine ResolveRacingLine(out string info)
+    {
+        if (GameSession.RacingLineSource == RacingLineSource.RecordedLap && GameSession.RacingLineCsv is { } csv)
+        {
+            try
+            {
+                var rec = RecordedLapLine.FromTelemetryCsv(csv);
+                info = FormattableString.Invariant($"best lap {rec.Lap}{(rec.LapTime is { } t ? $" ({FormatTime(t)})" : "")} from {System.IO.Path.GetFileName(csv)}");
+                return rec.Line;
+            }
+            catch (Exception e) when (e is System.IO.IOException or System.IO.InvalidDataException or FormatException or UnauthorizedAccessException)
+            {
+                Notify("Racing line CSV not usable: " + e.Message + " — using the optimised line");
+            }
+        }
+        if (GameSession.RacingLineSource == RacingLineSource.TrackReference)
+        {
+            info = Track.Mesh != null ? "Assetto Corsa AI line" : "track centreline";
+            return Track.Line;
+        }
+        // Margin from the limits to the CG line: half the body width (0.84 m) plus 0.36 m of clearance.
+        if (!OptimisedCache.TryGetValue(Track.TrackName, out var line))
+        {
+            // Mesh tracks: optimise inside the wall-bounded corridor, not the bare AC edges.
+            ITrackLine corridor = Track.Mesh?.WallBoundedCorridor() ?? Track.Line;
+            line = RacingLineOptimizer.MinimumCurvature(corridor, margin: 1.2).Line;
+            OptimisedCache[Track.TrackName] = line;
+        }
+        info = "minimum-curvature line";
+        return line;
     }
 
     private TrackSample CurrentTrackSample() => new()
@@ -287,7 +355,7 @@ public partial class SimulationManager : Node
             GameSession.RacingLineVisible = !GameSession.RacingLineVisible;
             RacingLine.Visible = GameSession.RacingLineVisible;
             Notify(GameSession.RacingLineVisible
-                ? FormattableString.Invariant($"Racing line on (reference lap {FormatTime(RacingLine.LapTime)}, quasi-steady estimate)")
+                ? FormattableString.Invariant($"Racing line on: {RacingLineInfo} (reference lap {FormatTime(RacingLine.LapTime)}, quasi-steady estimate)")
                 : "Racing line off");
         }
         if (Input.IsActionJustPressed(InputSetup.Menu)) GetTree().ChangeSceneToFile("res://scenes/MainMenu.tscn");

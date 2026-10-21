@@ -12,6 +12,11 @@ public struct VehicleInputs
     /// <summary>Edge request; consumed by exactly one physics step (see SimulationLoop).</summary>
     public bool ShiftUp;
     public bool ShiftDown;
+    /// <summary>
+    /// EXTENSION R1, edge request: engage reverse (from a forward gear) or 1st (from reverse). Engaging against the
+    /// direction of travel above <see cref="VehicleParameters.ReverseEngageMaxSpeed"/> damages the transmission.
+    /// </summary>
+    public bool ToggleReverse;
     /// <summary>MATLAB §11 gear rule: lowest gear whose 6500-rpm speed is >= V.</summary>
     public bool AutoShift;
     /// <summary>Surface under the car (E2). Asphalt when no track is used.</summary>

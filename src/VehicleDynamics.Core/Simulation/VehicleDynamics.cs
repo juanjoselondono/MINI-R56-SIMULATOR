@@ -66,32 +66,47 @@ public sealed class VehicleDynamics
         return _gearMaxKmh.Length;
     }
 
-    public double TotalRatio(int gear) => _p.GearRatios[gear - 1] * _p.FinalDrive;
+    public double TotalRatio(int gear)
+        => (gear == VehicleState.ReverseGear ? _p.ReverseRatio : _p.GearRatios[gear - 1]) * _p.FinalDrive;
 
     private bool PhysicalClutch => _p.ClutchLaunch && _p.LaunchModel == LaunchModel.PhysicalClutch;
     private double OmegaIdle => _p.IdleRpm * RpmToRad;
     /// <summary>E4 dynamic single-track model active (v_y and yaw rate are states).</summary>
     public bool Dynamic => _p.LateralModel == LateralModel.Dynamic;
 
-    /// <summary>Crank speed imposed by the wheels in gear g [rad/s].</summary>
-    private double WheelSideOmega(double v, int gear) => v / _p.WheelRadius * TotalRatio(gear);
+    /// <summary>
+    /// Crank speed imposed by the wheels in gear g [rad/s]: positive when the car moves in the gear's direction
+    /// (forwards in 1..6, backwards in reverse).
+    /// </summary>
+    private double WheelSideOmega(double v, int gear) => GearSign(gear) * v / _p.WheelRadius * TotalRatio(gear);
+
+    /// <summary>Direction the gear drives the car: +1 forward gears, −1 reverse (EXTENSION R1).</summary>
+    public static int GearSign(int gear) => gear == VehicleState.ReverseGear ? -1 : 1;
+
+    /// <summary>
+    /// Index into the per-gear arrays. Reverse uses 1st gear's rotating-mass factor: model.m has none for reverse and
+    /// the ratios are close (3.143 vs 3.214) — an assumption (EXTENSION R1).
+    /// </summary>
+    public static int GearIndex(int gear) => gear == VehicleState.ReverseGear ? 0 : gear - 1;
 
     /// <summary>Magnitude of the CG velocity [m/s] (E4: √(v_x² + v_y²); E1: the path speed).</summary>
     public double Speed => Dynamic ? Math.Sqrt(State.V * State.V + State.Vy * State.Vy) : State.V;
 
     /// <summary>Angle of the CG velocity relative to the heading [rad] (E4: atan2(v_y, v_x); E1: kinematic β).</summary>
-    public double VelocityAngle => Dynamic ? (State.V > 0 || State.Vy != 0 ? Math.Atan2(State.Vy, State.V) : 0) : Outputs.Beta;
+    public double VelocityAngle => Dynamic ? (State.V != 0 || State.Vy != 0 ? Math.Atan2(State.Vy, State.V) : 0) : Outputs.Beta;
 
     /// <summary>Advances one fixed step. Shift edges in <paramref name="u"/> are applied once here.</summary>
     public void Step(in VehicleInputs u, double dt)
     {
         if (!(dt > 0)) throw new ArgumentOutOfRangeException(nameof(dt));
         var s = State;
-        bool blownNow = false;
+        bool blownNow = false, transmissionNow = false;
 
-        if (!s.EngineBlown)
+        if (!s.EngineBlown && !s.TransmissionDamaged)
         {
-            if (u.AutoShift) s.Gear = AutoGear(s.V);
+            if (u.ToggleReverse) transmissionNow = ToggleReverse(ref s);
+            else if (s.InReverse) { } // stays in reverse until toggled (shift paddles and auto-shift act on 1..6)
+            else if (u.AutoShift) s.Gear = AutoGear(s.V);
             else
             {
                 if (u.ShiftUp && s.Gear < _p.NumGears) s.Gear++;
@@ -99,9 +114,9 @@ public sealed class VehicleDynamics
             }
         }
         UpdateClutchMode(ref s);
-        if (!s.EngineBlown && s.ClutchLocked)
+        if (!s.EngineBlown && !s.TransmissionDamaged && s.ClutchLocked)
         {
-            double wheelRpm = EngineModel.WheelRpm(s.V, _p.WheelRadius, TotalRatio(s.Gear));
+            double wheelRpm = EngineModel.WheelRpm(GearSign(s.Gear) * s.V, _p.WheelRadius, TotalRatio(s.Gear));
             if (_p.MechanicalDamage && wheelRpm > _p.MoneyShiftRpm)
             {
                 s.EngineBlown = true; // money shift (seed rule)
@@ -112,6 +127,7 @@ public sealed class VehicleDynamics
 
         var o = Evaluate(s, u);
         o.EngineBlownThisStep = blownNow;
+        o.TransmissionDamagedThisStep = transmissionNow;
 
         if (Integrator == Integrator.SemiImplicitEuler) IntegrateEuler(ref s, o, u, dt);
         else if (Dynamic) Rk4Dynamic(ref s, u, dt);
@@ -127,12 +143,35 @@ public sealed class VehicleDynamics
     }
 
     /// <summary>
+    /// EXTENSION R1: reverse toggle. From a forward gear: reverse engages if v_x ≤ <see cref="VehicleParameters.ReverseEngageMaxSpeed"/>;
+    /// above it (moving forwards) the transmission is destroyed (with <see cref="VehicleParameters.MechanicalDamage"/>; without
+    /// it the request is ignored). From reverse: 1st engages if the car is not rolling backwards faster than the same
+    /// limit, otherwise the same damage. Reverse needs the E4 model (E1 has no v_x &lt; 0 kinematics): ignored with E1.
+    /// Returns true when the transmission was destroyed.
+    /// </summary>
+    private bool ToggleReverse(ref VehicleState s)
+    {
+        double against = s.InReverse ? -s.V : s.V;   // speed opposite to the gear being engaged
+        if (against > _p.ReverseEngageMaxSpeed)
+        {
+            if (!_p.MechanicalDamage) return false;
+            s.TransmissionDamaged = true;
+            s.ClutchLocked = false;
+            return true;
+        }
+        if (s.InReverse) s.Gear = 1;
+        else if (Dynamic) s.Gear = VehicleState.ReverseGear;
+        return false;
+    }
+
+    /// <summary>
     /// E5 clutch mode at the start of a step. Without the physical launch clutch the engine is always tied to the
     /// wheels (model.m). With it: it opens when the wheel-driven engine speed would fall below idle, and closes as soon
     /// as the wheel side turns at least as fast as the (slipping) engine.
     /// </summary>
     private void UpdateClutchMode(ref VehicleState s)
     {
+        if (s.TransmissionDamaged) { s.ClutchLocked = false; return; }
         if (!PhysicalClutch) { s.ClutchLocked = true; return; }
         if (s.EngineBlown) { s.ClutchLocked = false; return; }
         double idle = OmegaIdle;
@@ -153,7 +192,7 @@ public sealed class VehicleDynamics
     /// <summary>E5: engine speed while slipping (idle governor floor); locks when the slip changes sign.</summary>
     private void IntegrateClutch(ref VehicleState s, in VehicleOutputs o, double dt)
     {
-        if (!PhysicalClutch || s.EngineBlown || o.ClutchLocked) return;
+        if (!PhysicalClutch || s.EngineBlown || s.TransmissionDamaged || o.ClutchLocked) return;
         double idle = OmegaIdle;
         double we = Math.Max(idle, s.EngineOmega + o.EngineOmegaDot * dt);
         double win = WheelSideOmega(s.V, s.Gear);
@@ -191,6 +230,17 @@ public sealed class VehicleDynamics
     private static bool IsSliding(in VehicleState s) => Math.Abs(s.Vy) > 0.3 || Math.Abs(s.YawRate) > 0.2;
 
     /// <summary>
+    /// model.m's "stop at 0" rule, per gear direction: in a forward gear v_x does not cross from ≥ 0 to &lt; 0, in reverse
+    /// (R1) it does not cross from ≤ 0 to &gt; 0 — unless the body slides or rotates (spin). Resistances and brakes can
+    /// stop the car but never drive it the other way.
+    /// </summary>
+    private static bool CrossesZeroAgainstGear(in VehicleState s, double vNew)
+    {
+        if (IsSliding(s)) return false;
+        return s.InReverse ? s.V <= 0 && vNew > 0 : s.V >= 0 && vNew < 0;
+    }
+
+    /// <summary>
     /// E4 semi-implicit Euler (model.m's scheme for v_x and the distance). No reverse gear: from v_x &gt;= 0 the car only
     /// stops at 0 unless it is sliding or rotating, so a spin may carry the body backwards and continue smoothly.
     /// </summary>
@@ -199,7 +249,7 @@ public sealed class VehicleDynamics
         double a = o.VxDot;
         double vNew = s.V + a * dt;
         bool held = false;
-        if (s.V >= 0 && vNew < 0 && !IsSliding(s)) { vNew = 0; held = true; }
+        if (CrossesZeroAgainstGear(s, vNew)) { vNew = 0; held = true; }
 
         double vyNew = s.Vy + o.VyDot * dt;
         double rNew = s.YawRate + o.YawAccel * dt;
@@ -207,7 +257,7 @@ public sealed class VehicleDynamics
         if (held && Math.Abs(vyNew) < 0.05) { vyNew = 0; rNew = 0; } // parked: no residual rotation
 
         double dx = vNew * dt + 0.5 * a * (dt * dt);
-        if (held && dx < 0) dx = 0;
+        if (held && dx * GearSign(s.Gear) < 0) dx = 0;
         double dy = vyNew * dt;
         if (dy == 0 && rNew == 0 && dx >= 0)
         {
@@ -264,7 +314,7 @@ public sealed class VehicleDynamics
     private void Rk4Kinematic(ref VehicleState s, VehicleInputs u, double dt)
     {
         var s0 = s;
-        bool auto = u.AutoShift && !s0.EngineBlown;
+        bool auto = u.AutoShift && !s0.EngineBlown && !s0.TransmissionDamaged && !s0.InReverse;
         (double dv, double dpsi, double dx, double dy) F(double v, double psi)
         {
             v = Math.Max(0, v);
@@ -296,7 +346,7 @@ public sealed class VehicleDynamics
     private void Rk4Dynamic(ref VehicleState s, VehicleInputs u, double dt)
     {
         var s0 = s;
-        bool auto = u.AutoShift && !s0.EngineBlown;
+        bool auto = u.AutoShift && !s0.EngineBlown && !s0.TransmissionDamaged && !s0.InReverse;
         double[] F(double[] y)
         {
             var sv = s0;
@@ -318,7 +368,7 @@ public sealed class VehicleDynamics
         var k4 = F(Add(y0, k3, dt));
         var y1 = y0.Select((v, i) => v + dt / 6 * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i])).ToArray();
         double vNew = y1[0], vy = y1[1], r = y1[2];
-        if (s0.V >= 0 && vNew < 0 && !IsSliding(s0)) vNew = 0;
+        if (CrossesZeroAgainstGear(s0, vNew)) vNew = 0;
         BlendTowardsKinematic(vNew, Math.Clamp(u.SteerAngle, -_p.MaxSteerAngle, _p.MaxSteerAngle), dt, ref vy, ref r);
         s.V = vNew; s.Vy = vy; s.YawRate = r; s.Psi = y1[3]; s.X = y1[4]; s.Y = y1[5]; s.Distance = Math.Max(s0.Distance, y1[6]);
     }
@@ -386,15 +436,24 @@ public sealed class VehicleDynamics
         // model.m's global slope plus the local track grade (E6; 0 unless a mesh track supplies it).
         double theta = p.Theta + u.RoadGrade;
         double cosT = Math.Cos(theta);
-        bool slipping = PhysicalClutch && !s.ClutchLocked && !s.EngineBlown;
-        o.ClutchLocked = !slipping;
+        bool broken = s.TransmissionDamaged;
+        bool slipping = PhysicalClutch && !s.ClutchLocked && !s.EngineBlown && !broken;
+        o.ClutchLocked = !slipping && !broken;
+        // R1: the driveline works with the speed along the gear's direction (= v in forward gears).
+        double sigma = GearSign(s.Gear);
 
         // Longitudinal (model.m §3-§7)
-        o.WheelRpm = EngineModel.WheelRpm(v, rw, tr);
-        double massFactorMass = p.Mass * (1 + p.MassFactors[s.Gear - 1]);
+        o.WheelRpm = EngineModel.WheelRpm(sigma * v, rw, tr);
+        double massFactorMass = p.Mass * (1 + p.MassFactors[GearIndex(s.Gear)]);
         if (s.EngineBlown)
         {
             o.EngineRpm = 0;
+            o.EngineTorque = 0;
+        }
+        else if (broken)
+        {
+            // R1: transmission destroyed — the engine idles, no torque reaches the wheels.
+            o.EngineRpm = p.IdleRpm;
             o.EngineTorque = 0;
         }
         else if (slipping)
@@ -422,8 +481,8 @@ public sealed class VehicleDynamics
             ? o.ClutchTorque * tr * p.EtaT / rw
             : o.EngineTorque * throttle * tr * p.EtaT / rw;
         // While slipping the engine inertia is decoupled: only the driveline downstream of the clutch is reflected.
-        double driveMass = slipping
-            ? Math.Max(p.Mass, massFactorMass - p.EngineInertia * (tr / rw) * (tr / rw))
+        double driveMass = broken ? p.Mass
+            : slipping ? Math.Max(p.Mass, massFactorMass - p.EngineInertia * (tr / rw) * (tr / rw))
             : massFactorMass;
 
         double muEff = p.Mu * (u.SurfaceGrip > 0 ? u.SurfaceGrip : p.GripFactor(u.Surface));
@@ -436,7 +495,7 @@ public sealed class VehicleDynamics
         o.FGrade = Resistance.Grade(p, theta);
         double fRes = o.FDrag + o.FRolling + o.FGrade;
         double fBrakeMax = (p.BrakeMuFactor * muEff) * (p.Mass * p.G * cosT);
-        o.FEngineBrake = slipping ? 0 : p.EngineBrakeTorque * tr / rw;
+        o.FEngineBrake = slipping || broken ? 0 : p.EngineBrakeTorque * tr / rw;
 
         if (p.LateralModel == LateralModel.Kinematic)
             EvaluateKinematic(ref o, s, p, v, throttle, brake, fRes, fBrakeMax, muEff, driveMass);
@@ -566,7 +625,10 @@ public sealed class VehicleDynamics
         // v_x = 0 they ramp linearly through zero only while the body slides (spin) or rolls backwards, so they fade out
         // instead of chattering; a car that is not sliding keeps model.m's semantics (forces oppose forward motion and the
         // integrator holds it at 0), which also holds a parked car on a slope.
-        double dir = Math.Abs(v) >= 0.5 ? Math.Sign(v) : (IsSliding(s) || v < 0 ? v / 0.5 : 1.0);
+        // R1: in reverse the same rule is mirrored (a car at rest in reverse is held as if it were rolling backwards).
+        double dir = Math.Abs(v) >= 0.5 ? Math.Sign(v)
+            : !s.InReverse ? (IsSliding(s) || v < 0 ? v / 0.5 : 1.0)
+            : (IsSliding(s) || v > 0 ? v / 0.5 : -1.0);
         double fRes = dir * (o.FDrag + o.FRolling) + o.FGrade;
 
         double transfer = m * s.AxPrev * p.CgHeight / L;
@@ -604,11 +666,13 @@ public sealed class VehicleDynamics
         else if (throttle > p.ThrottleInputThreshold || !o.ClutchLocked)
         {
             o.Branch = DriveBranch.Drive;
-            var (a, fEff, tyre, mass) = DriveAcceleration(p, o.FTractive, o.FxMax, fRes, driveMass);
+            // R1: solved along the gear's direction (identity in forward gears), then mapped back to body x.
+            double sg = GearSign(s.Gear);
+            var (a, fEff, tyre, mass) = DriveAcceleration(p, o.FTractive, o.FxMax, sg * fRes, driveMass);
             o.MassEquivalent = mass;
-            o.Ax = a;
+            o.Ax = sg * a;
             o.FTractiveEff = fEff;
-            fxF = Math.Clamp(tyre, -gF, gF);
+            fxF = sg * Math.Clamp(tyre, -gF, gF);
             if (o.FTractive > 0) lonDemand = o.FxMax > 0 ? o.FTractive / o.FxMax : 10;
         }
         else

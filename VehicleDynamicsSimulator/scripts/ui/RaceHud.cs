@@ -20,6 +20,13 @@ public partial class RaceHud : Control
 
     public override void _Process(double delta) => QueueRedraw();
 
+    private static FontVariation? _bold;
+    /// <summary>Bold variant of the default font (synthetic emboldening).</summary>
+    private static Font Bold => _bold ??= new FontVariation { BaseFont = ThemeDB.FallbackFont, VariationEmbolden = 1.0f };
+
+    /// <summary>Gear indicator: X = engine destroyed, R = reverse (R1), else the gear number.</summary>
+    public static string GearLabel(in VehicleState s) => s.EngineBlown ? "X" : s.InReverse ? "R" : s.Gear.ToString();
+
     public override void _Draw()
     {
         if (_sim?.Vehicle?.Dynamics == null) return;
@@ -55,8 +62,8 @@ public partial class RaceHud : Control
         DrawCircle(c, 8, UiTheme.Accent);
         DrawString(font, c + new Vector2(-70, 66), F(Math.Abs(s.V) * 3.6, "0"), HorizontalAlignment.Center, 140, 46, UiTheme.Text);
         DrawString(font, c + new Vector2(-70, 88), "km/h", HorizontalAlignment.Center, 140, 14, UiTheme.Muted);
-        string gear = s.EngineBlown ? "X" : s.Gear.ToString();
-        DrawString(font, c + new Vector2(-30, -42), gear, HorizontalAlignment.Center, 60, 34, s.EngineBlown ? UiTheme.Bad : UiTheme.Accent);
+        string gear = GearLabel(s);
+        DrawString(font, c + new Vector2(-30, -42), gear, HorizontalAlignment.Center, 60, 34, s.EngineBlown || s.TransmissionDamaged ? UiTheme.Bad : UiTheme.Accent);
         DrawString(font, c + new Vector2(-70, 30), (_sim.Vehicle.AutoShift ? "AUTO · " : "") + F(s.EngineRpm, "0") + " rpm", HorizontalAlignment.Center, 140, 13, UiTheme.Muted);
 
         // Lap panel, top right.
@@ -85,6 +92,16 @@ public partial class RaceHud : Control
         if (o.Branch == DriveBranch.Drive && o.FTractive > o.FTractiveEff + 1) Flag("TRACTION LIMIT — F_trac capped at F_x,max", UiTheme.Muted);
         if (_sim.CurrentSurface is Surface.Grass or Surface.Barrier) Flag("OFF TRACK — grass [E2]", UiTheme.Bad);
         if (_sim.Collisions.InContact) Flag("BARRIER CONTACT [E3]", UiTheme.Bad);
+
+        if (s.TransmissionDamaged)
+        {
+            var box = new Rect2(vp.X / 2 - 380, vp.Y / 2 - 70, 760, 120);
+            DrawRect(box, new Color(0, 0, 0, 0.8f));
+            DrawRect(box, UiTheme.Bad, false, 3);
+            DrawString(Bold, box.Position + new Vector2(0, 58), "Transmission Damaged! Press R to restart", HorizontalAlignment.Center, box.Size.X, 34, UiTheme.Bad);
+            DrawString(font, box.Position + new Vector2(0, 92), $"Reverse selected above {p.ReverseEngageMaxSpeed * 3.6:0} km/h. No torque reaches the wheels. R / Select: restart.",
+                HorizontalAlignment.Center, box.Size.X, 15, UiTheme.Text);
+        }
 
         if (s.EngineBlown)
         {

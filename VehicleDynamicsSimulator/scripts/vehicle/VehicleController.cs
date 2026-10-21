@@ -87,6 +87,9 @@ public partial class VehicleController : Node3D
 
     /// <summary>Scripted shift request (+1 up, -1 down), delivered as an edge on the next frame like a key press.</summary>
     public void RequestShift(int direction) => _requestedShift = Math.Sign(direction);
+    /// <summary>Scripted reverse-toggle request (tests), applied like a press of the reverse button.</summary>
+    public void RequestReverseToggle() => _requestedReverse = true;
+    private bool _requestedReverse;
 
     private VehicleVisuals? _visuals;
     private (double X, double Y, double Psi) _spawn;
@@ -123,14 +126,18 @@ public partial class VehicleController : Node3D
 
     /// <summary>
     /// Explicit reset to a pose at rest (spawn or recover-to-track). The only teleport in the game.
-    /// <paramref name="keepEngineDamage"/>: recovering moves the car but does not repair a destroyed engine.
+    /// <paramref name="keepEngineDamage"/>: recovering moves the car but does not repair a destroyed engine or transmission.
     /// </summary>
     public void ResetVehicleAt(double x, double y, double psi, bool keepEngineDamage = false)
     {
         bool paused = Loop?.Clock.Paused ?? false;
         if (GroundSnap?.Invoke(x, y) is { } h) _lastGroundHeight = h;
         var rest = VehicleState.AtRest(x, y, psi);
-        if (keepEngineDamage && Dynamics != null) rest.EngineBlown = Dynamics.State.EngineBlown;
+        if (keepEngineDamage && Dynamics != null)
+        {
+            rest.EngineBlown = Dynamics.State.EngineBlown;
+            rest.TransmissionDamaged = Dynamics.State.TransmissionDamaged;
+        }
         Dynamics = new Dyn(Parameters, rest);
         CreateLoop(paused);
         Shaper.Reset();
@@ -220,7 +227,9 @@ public partial class VehicleController : Node3D
             // Shift presses while paused are dropped, not queued for the resume.
             u.ShiftUp = (!typing && Input.IsActionJustPressed(InputSetup.ShiftUp)) || _requestedShift > 0;
             u.ShiftDown = (!typing && Input.IsActionJustPressed(InputSetup.ShiftDown)) || _requestedShift < 0;
+            u.ToggleReverse = (!typing && Input.IsActionJustPressed(InputSetup.ToggleReverse)) || _requestedReverse;
             _requestedShift = 0;
+            _requestedReverse = false;
         }
 
         long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -258,6 +267,7 @@ public partial class VehicleController : Node3D
         var shaped = VehicleInputs.FromNormalized(Shaper.Throttle, Shaper.Brake, steerCmd, Parameters, u.AutoShift);
         shaped.ShiftUp = u.ShiftUp;
         shaped.ShiftDown = u.ShiftDown;
+        shaped.ToggleReverse = u.ToggleReverse;
         shaped.Surface = u.Surface;
         return shaped;
     }
