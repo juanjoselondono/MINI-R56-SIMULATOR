@@ -35,7 +35,8 @@ public static class ConvergenceStudy
 
     public static (double V, double D) Simulate(string caseName, Integrator integ, double dt, double tEnd)
     {
-        var p = new VehicleParameters { ClutchLaunch = false };
+        // model.m's longitudinal model only (the study predates and does not cover C1/E4/E5).
+        var p = new VehicleParameters { ClutchLaunch = false, GripLimitOnTyreForce = false, LateralModel = LateralModel.Kinematic };
         var dyn = new VehicleDynamics(p) { Integrator = integ };
         var s = VehicleState.AtRest();
         VehicleInputs u;

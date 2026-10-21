@@ -68,6 +68,9 @@ public partial class SimulationManager : Node
         if (trackArg != null) GameSession.TrackName = trackArg["--track=".Length..];
         LoadTrack(GameSession.TrackName);
 
+        Input.JoyConnectionChanged += OnJoyConnectionChanged;
+        foreach (int id in Input.GetConnectedJoypads()) OnJoyConnectionChanged(id, true);
+
         var args = OS.GetCmdlineUserArgs();
         if (args.Contains("--selftest")) AddChild(new Dev.SelfTest { Name = "SelfTest" });
         Dev.ScreenshotRig.AttachIfRequested(this);
@@ -199,6 +202,22 @@ public partial class SimulationManager : Node
         if (dtChanged && wasRecording) Telemetry.Start(Vehicle, Track.TrackName);
         Telemetry.AddEvent("parameters_applied");
         Notify("Setup applied");
+    }
+
+    public override void _ExitTree() => Input.JoyConnectionChanged -= OnJoyConnectionChanged;
+
+    /// <summary>
+    /// Announces gamepads. Godot maps known controllers (SDL database) to the standard XInput layout; an unknown one
+    /// is usually a Logitech F710 in DirectInput mode (switch on the back set to "D").
+    /// </summary>
+    private void OnJoyConnectionChanged(long device, bool connected)
+    {
+        int id = (int)device;
+        if (!connected) { Notify($"Gamepad {id} disconnected"); return; }
+        string name = Input.GetJoyName(id);
+        Notify(Input.IsJoyKnown(id)
+            ? $"Gamepad connected: {name} (RT throttle, LT brake, left stick steer, RB/LB shift)"
+            : $"Gamepad '{name}' has no standard mapping: set the F710 switch to X (XInput)");
     }
 
     public void Notify(string message)

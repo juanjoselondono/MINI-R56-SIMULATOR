@@ -17,7 +17,7 @@ public partial class VehicleSetupPanel : PanelContainer
 {
     private SimulationManager _sim = null!;
     private VehicleParameters _edit = new();
-    private readonly VehicleParameters _defaults = new();
+    private readonly VehicleParameters _defaults = VehicleParameters.GameDefaults();
     private readonly List<(ParamEntry Entry, HSlider? Slider, SpinBox? Spin, CheckBox? Check)> _rows = new();
     private Label _status = null!;
     private Label _derived = null!;
@@ -42,7 +42,7 @@ public partial class VehicleSetupPanel : PanelContainer
         var buttons = new HFlowContainer();
         _apply = UiTheme.Button("Apply Setup", Apply);
         buttons.AddChild(_apply);
-        buttons.AddChild(UiTheme.Button("Reset Parameters", () => { _edit = new VehicleParameters(); SyncFromEdit(); }, "Back to model.m / seed defaults (not applied yet)"));
+        buttons.AddChild(UiTheme.Button("Reset Parameters", () => { _edit = VehicleParameters.GameDefaults(); SyncFromEdit(); }, "Back to the game defaults (model.m values, M = 1150 kg; not applied yet)"));
         buttons.AddChild(UiTheme.Button("Revert Edits", () => { _edit = _sim.Vehicle.Parameters.Clone(); SyncFromEdit(); }, "Discard edits not yet applied"));
         buttons.AddChild(UiTheme.Button("Reset Vehicle", () => _sim.RecoverToTrack(), "Recover to the track centreline at rest"));
         _pause = UiTheme.Button("Pause", () => _sim.Vehicle.SetPaused(!_sim.Vehicle.Paused));
@@ -102,7 +102,13 @@ public partial class VehicleSetupPanel : PanelContainer
         name.TooltipText = e.Help;
         name.MouseFilter = MouseFilterEnum.Pass;
         line.AddChild(name);
-        var tagColor = e.Source == ParamSource.ModelM ? UiTheme.Muted : e.Source == ParamSource.JsSeed ? UiTheme.Accent : UiTheme.Ext;
+        var tagColor = e.Source switch
+        {
+            ParamSource.ModelM or ParamSource.DerivedModelM => UiTheme.Muted,
+            ParamSource.JsSeed => UiTheme.Accent,
+            ParamSource.UserData => UiTheme.Good,
+            _ => UiTheme.Ext,
+        };
 
         if (e.IsToggle)
         {

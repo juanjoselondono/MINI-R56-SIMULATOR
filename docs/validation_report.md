@@ -430,3 +430,79 @@ The model's scale cross-checks against independent data:
 - Rendering performance above 60 fps (vsync limited the GPU measurement) and at higher resolutions.
 - Audio by ear: only pitch, gating and the slip rule were checked numerically.
 - Godot editor workflows (opening the project in the editor UI). Every check here used the command-line engine.
+
+## 12. Gamepad, launch clutch (E5), dynamic lateral model (E4) and correction C1 (2026-10-20)
+
+### 12.1 MATLAB validation after the change
+
+The validation chain was re-run after these changes:
+
+| Check | Result |
+|---|---|
+| ValidationRunner, golden max rel err (S01–S09) | `0.000E+000` |
+| Interactive R1 max \|Δv\| | identical to before, e.g. S01 3.748e-3 km/h |
+| `compare_results` | 18/18 PASS |
+
+These checks run with C1 off and no launch model (`FromReference`, `ClutchLaunch = false`). With δ = 0 the E4 terms are
+exactly zero. `Dynamic_StraightLine_IsBitIdenticalToKinematic` asserts bit-identical speed and distance over 4000 steps.
+
+### 12.2 1st-gear launch: what changed and why
+
+Full throttle from rest with auto-shift (`dotnet run` scratch study using the core):
+
+| Configuration | 0–50 km/h | 0–100 km/h | a_x at 10 km/h | rpm at 10 km/h | clutch locks |
+|---|---|---|---|---|---|
+| Before: 1420 kg, seed clutch S1, model.m formula | 4.86 s | 12.76 s | 2.89 m/s² | 3500 (pinned) | – |
+| 1420 kg, S1, C1 | 4.67 s | 12.58 s | 3.01 | 3500 | – |
+| 1420 kg, E5, C1 | 4.70 s | 12.60 s | 3.76 | 2263 | 18.7 km/h |
+| **Game now: 1150 kg, E5, C1** | **3.89 s** | **10.20 s** | **4.33** | 2245 | 18.8 km/h |
+
+Diagnosis:
+- **Before.** 1st gear's 0.50 mass factor divided the F_x,max-capped driveline force by 1.5·M. The seed rule pinned the
+  engine at 3500 rpm (flat tach and sound) up to 28 km/h.
+- **C1.** With the rotating inertia accounted for, the locked 1st-gear tyre force is below F_x,max, so C1 adds only a few
+  per cent.
+- **E5.** The launch phase becomes genuinely grip-limited, at 4.34 m/s² on 1150 kg, because the engine inertia is
+  decoupled while the clutch slips.
+- **Mass.** The 1150 kg mass gives the largest overall gain.
+
+### 12.3 New tests
+
+13 tests in `tests/VehicleDynamics.Tests/DynamicModelTests.cs`, all passing. Total: core **107/107**, game logic **11/11**.
+
+| Test | Result |
+|---|---|
+| Steady-state yaw rate vs linear bicycle, δ = 0.01 rad, 20.4 m/s | r = 0.065213 vs 0.065048 rad/s (0.25 %), K = 1.60e-3 s²/m (1420 kg) |
+| Step steer 0.02 rad at 25 m/s | peak 0.156, settled 0.143 rad/s at 3 s and 8 s |
+| Full lock 0.3 rad at 25 m/s | max \|a_y\| 8.459 m/s² ≤ μg 8.829; front axle saturates (understeer) |
+| Left/right symmetry; low-speed kinematic limit; 60 s random inputs | exact symmetry; r = v tanδ/L at 1 m/s; all states finite, v_x ≥ 0, rpm ≥ idle |
+| E5 full-throttle launch (1150 kg) | slips from rest, grip-limited a_x = 4.336 m/s² = (F_x,max − F_res)/M; locks at 1.485 s / 18.8 km/h; rpm 2279 → 2287 at lock |
+| E5 throttle 0.3 | max a_x 1.24 m/s², locks, never below idle |
+| E5 at rest | no creep on flat ground; on −10 % rolls, clutch locks, 8.2 km/h after 20 s with engine braking |
+| C1 | grip-limited case: a = (F_x,max − F_res)/M with C1, /M_eq without; not grip-limited: identical |
+| Collision with E4 state | velocity re-expressed in the new body frame, r scaled by V'/V, speed never increases |
+
+### 12.4 Wall-contact chatter found and fixed
+
+A scripted driver steering into a wall for 12 s gave 113 impulses with E4, against 19 with E1. The median severity was
+0.46 m/s: the tyres pushed the car back into the wall after each small bounce. With the 1 m/s bounce threshold there
+were 17 impulses (median 1.67 m/s); the rest is sliding contact. In the self-test that is 3 impulses over 46 contact
+entries.
+
+In the same abusive scenario the E4 car can spin (peak |r| 2.86 rad/s, oversteer flag set). The yaw rate changes
+smoothly (no sign flips), so this is physical, not numerical.
+
+### 12.5 In-game self-test
+
+**29/29 passed**, exit code 0. Six checks are new: three on each track.
+
+| Check | Result |
+|---|---|
+| Gamepad RT + stick (events injected through Godot's input pipeline) | RT 0.6 → throttle 0.5789 (deadzone-remapped, no ramp); stick −0.5 → δ = 0.0889 rad (exponent 1.5) |
+| Gamepad LT | brake 1.0 |
+| Gamepad RB / LB | gear 1 → 2 → 1 |
+| Standing start (E5) | 0–50 km/h in 4.00 s; slips from rest, locks at 18.7 km/h; engine never below 1000 rpm |
+| Scripted laps (now with E4 and 1150 kg) | Oval 62.16 s, Circuit 114.97 s, valid, no impacts |
+
+The F710 itself was not connected in this environment. The gamepad checks inject the events a standard-layout pad
+produces, so the device-specific mapping (XInput mode) remains to be confirmed on the real pad.

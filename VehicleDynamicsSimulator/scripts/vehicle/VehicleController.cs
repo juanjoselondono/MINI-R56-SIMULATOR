@@ -28,7 +28,16 @@ public partial class VehicleController : Node3D
     [Export] public bool SpeedSensitiveSteering { get; set; } = true;
     [Export] public float SpeedSensitiveSteeringRefSpeed { get; set; } = 25f;
 
-    public VehicleParameters Parameters { get; private set; } = new();
+    public VehicleParameters Parameters { get; private set; } = VehicleParameters.GameDefaults();
+
+    /// <summary>
+    /// Gamepad steering response: steer = sign(x)·|x|^exponent on the left-stick value (after the Input Map deadzone),
+    /// for finer control near centre. Input mapping only; the model receives the resulting δ.
+    /// </summary>
+    [Export] public float StickSteerExponent { get; set; } = 1.5f;
+
+    /// <summary>True while the last driving input came from a gamepad (analog: no keyboard ramping).</summary>
+    public bool UsingGamepad { get; private set; }
     public Dyn Dynamics { get; private set; } = null!;
     public SimulationLoop Loop { get; private set; } = null!;
     public InputShaper Shaper { get; } = new();
@@ -157,6 +166,14 @@ public partial class VehicleController : Node3D
     public void SetPaused(bool paused) => Loop.Clock.Paused = paused;
     public bool Paused => Loop.Clock.Paused;
 
+    /// <summary>The device of the most recent driving input decides between analog (gamepad) and ramped (keyboard) inputs.</summary>
+    public override void _Input(InputEvent e)
+    {
+        if (e is InputEventJoypadMotion m && Math.Abs(m.AxisValue) > 0.2f) UsingGamepad = true;
+        else if (e is InputEventJoypadButton { Pressed: true }) UsingGamepad = true;
+        else if (e is InputEventKey { Pressed: true }) UsingGamepad = false;
+    }
+
     public override void _Process(double delta)
     {
         bool typing = UiFocus.IsTyping(GetViewport());
@@ -177,6 +194,7 @@ public partial class VehicleController : Node3D
             throttle = Input.GetActionStrength(InputSetup.Throttle);
             brake = Input.GetActionStrength(InputSetup.Brake);
             steer = Input.GetActionStrength(InputSetup.SteerLeft) - Input.GetActionStrength(InputSetup.SteerRight);
+            if (UsingGamepad) steer = Math.Sign(steer) * Math.Pow(Math.Abs(steer), StickSteerExponent);
         }
 
         // Raw targets are sampled once per frame; ramping and the steering assist run per physics step
@@ -215,7 +233,8 @@ public partial class VehicleController : Node3D
     /// </summary>
     private VehicleInputs ShapeInputs(Dyn d, VehicleInputs u, double dt)
     {
-        Shaper.Update(_rawTargets.Throttle, _rawTargets.Brake, _rawTargets.Steer, dt);
+        if (UsingGamepad && Autopilot == null) Shaper.SetImmediate(_rawTargets.Throttle, _rawTargets.Brake, _rawTargets.Steer);
+        else Shaper.Update(_rawTargets.Throttle, _rawTargets.Brake, _rawTargets.Steer, dt);
         double steerCmd = Shaper.Steer;
         if (SpeedSensitiveSteering && Autopilot == null)
         {

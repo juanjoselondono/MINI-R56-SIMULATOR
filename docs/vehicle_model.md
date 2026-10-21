@@ -287,18 +287,27 @@ left to right; `(0.01*(1+(v_mph/100)))*(M*g*cos θ)`; `T_engine*total_ratio*eta_
 The setup panel exposes exactly the entries of `VehicleDynamicsSimulator/scripts/ui/ParameterCatalog.cs`. The table below
 is generated from that file. Every range lies inside `VehicleParameters.Validate()`. Cross-parameter rules (strictly
 decreasing gear ratios, c within 5–95 % of L, idle < fuel cut < money shift, clutch target between idle and fuel cut) are
-checked on the edited copy before Apply. Not exposed: `g` (a physical constant), `margin_safety` (used only by the
-reference/validation layer), the rpm positions of the torque nodes (only their torque values are editable), and the
-asphalt surface factors (μ itself covers asphalt).
+checked on the edited copy before Apply.
+
+Defaults come from `VehicleParameters.GameDefaults()`. These are model.m's values except the mass: 1150 kg, supplied by
+the user together with I_zz, against model.m's 1420 kg.
+
+Not exposed:
+- `g`, a physical constant;
+- `margin_safety`, used only by the reference/validation layer;
+- the rpm positions of the torque nodes (only their torque values are editable);
+- the asphalt surface factors (μ itself covers asphalt);
+- the E4 low-speed blend band, which is numerical.
 
 | Group | Parameter | Unit | Range | Step | Source | Meaning |
 |---|---|---|---|---|---|---|
-| Vehicle body & environment | Mass M | kg | 600 – 3000 | 10 | model.m | Running mass (car.M). Enters F_x,max, rolling, grade and every inertia term. |
+| Vehicle body & environment | Mass M | kg | 600 – 3000 | 10 | user-supplied | Running mass. model.m: car.M = 1420 kg; game default 1150 kg (user-supplied with I_zz). Enters F_x,max, rolling, grade, every inertia term and the E4 lateral dynamics. |
 | Vehicle body & environment | Drag coefficient Cd | – | 0.15 – 0.8 | 0.001 | model.m | Aerodynamic drag coefficient (car.Cd): F_drag = ½ρ A Cd V². |
 | Vehicle body & environment | Frontal area A | m² | 1.0 – 4.0 | 0.01 | model.m | Projected frontal area (car.A). |
 | Vehicle body & environment | Air density ρ | kg/m³ | 0.9 – 1.4 | 0.005 | model.m | env.rho_air (1.225 = sea level, 15 °C). |
 | Vehicle body & environment | Road grade | % | -20 – 20 | 0.5 | model.m | model.m slope (pct mode). One grade for the whole track, as in model.m: + = uphill. |
-| Tyres & traction limit (F_x,max, FWD) | Friction coefficient μ | – | 0.3 – 1.6 | 0.01 | model.m | Tyre–road friction (car.mu). Scales F_x,max, braking force and (E1) cornering grip. |
+| Tyres & traction limit (F_x,max, FWD) | Friction coefficient μ | – | 0.3 – 1.6 | 0.01 | model.m | Tyre–road friction (car.mu). Scales F_x,max, braking force and the lateral grip (E4: μ·F_z per axle). |
+| Tyres & traction limit (F_x,max, FWD) | Grip limit on tyre force (C1) |  | on / off |  | Correction C1 | On: F_x,max caps the tyre force (driveline force minus what spins up the rotating parts); a grip-limited tyre accelerates the bare mass. Off: model.m's formula (driveline force capped, divided by M_eq). |
 | Tyres & traction limit (F_x,max, FWD) | Tyre width | m | 0.145 – 0.255 | 0.005 | model.m | 175/65 R15 → 0.175. With aspect ratio and rim gives R_w. |
 | Tyres & traction limit (F_x,max, FWD) | Aspect ratio | – | 0.3 – 0.8 | 0.05 | model.m | Sidewall height / width. |
 | Tyres & traction limit (F_x,max, FWD) | Rim diameter | in | 13 – 20 | 1 | model.m | Wheel rim diameter. |
@@ -320,13 +329,21 @@ asphalt surface factors (μ itself covers asphalt).
 | Braking | Braking mass factor | – | 0 – 0.2 | 0.005 | model.m | model.m §11: M_eq,brake = M(1 + factor) (0.05). |
 | Engine rules from the JS seed game | Idle speed | rpm | 600 – 1500 | 10 | JS seed | Engine speed floor; torque below the first node uses the 1000-rpm value. |
 | Engine rules from the JS seed game | Fuel cut | rpm | 5000 – 7000 | 10 | JS seed | Torque = 0 at or above (rev limiter). |
-| Engine rules from the JS seed game | Clutch launch target | rpm | 2000 – 5000 | 10 | JS seed | 1st-gear launch: engine held at idle + throttle·(target − idle) until the wheels catch up. |
+| Engine rules from the JS seed game | Seed clutch target | rpm | 2000 – 5000 | 10 | JS seed | Only with the seed launch rule: engine held at idle + throttle·(target − idle) in 1st until the wheels catch up. |
 | Engine rules from the JS seed game | Engine braking torque | N·m | 0 – 80 | 1 | JS seed | Coasting drag torque at the crank (seed: 30). |
 | Engine rules from the JS seed game | Money-shift limit | rpm | 6600 – 9000 | 10 | JS seed | Wheel-driven engine speed that destroys the engine (seed: 7200). |
 | Engine rules from the JS seed game | Mechanical damage |  | on / off |  | JS seed | Over-revving above the money-shift limit destroys the engine. |
-| Engine rules from the JS seed game | Clutch launch |  | on / off |  | JS seed | Use the seed's clutch-slip launch rule in 1st gear. |
-| Steering & cornering (extension E1) | Max steer angle δ_max | rad | 0.05 – 0.6 | 0.005 | Ext. E1 | Road-wheel angle at full input. Not in model.m; the seed used 0.06. |
-| Steering & cornering (extension E1) | Grip utilisation | – | 0.5 – 1.3 | 0.01 | Ext. E1 | Friction-circle radius = factor · F_x,max (model.m §10 uses 0.8 as a planning margin). |
+| Engine rules from the JS seed game | Seed launch rule instead of E5 |  | on / off |  | JS seed | Use the seed's rpm rule in 1st gear instead of the physical launch clutch. |
+| Launch clutch (extension E5) | Launch model on |  | on / off |  | Ext. E5 | Off: model.m as is (engine always tied to the wheels, idle clamp); the car cannot pull away cleanly from 0 km/h. |
+| Launch clutch (extension E5) | Engine inertia I_e | kg·m² | 0.05 – 1.0 | 0.01 | derived from model.m | Engine + flywheel at the crank. Derived from model.m's 1st/2nd-gear mass factors (0.29). Sets how fast the engine revs while the clutch slips. |
+| Launch clutch (extension E5) | Clutch capacity | N·m | 80 – 400 | 5 | Ext. E5 | Torque the fully engaged clutch can transmit (1.25 × the 160 N·m peak). |
+| Launch clutch (extension E5) | Clutch bite speed | rpm | 1500 – 5000 | 50 | Ext. E5 | Engine speed at which the automatic launch clutch is fully engaged; full throttle settles near 2300 rpm while slipping. |
+| Steering & lateral dynamics (E4 dynamic / E1 kinematic) | Dynamic single-track (E4) |  | on / off |  | Ext. E4 (estimate) | On: slip angles, tyre forces, yaw inertia (the car can understeer, oversteer and spin). Off: E1 kinematic path with a friction circle. |
+| Steering & lateral dynamics (E4 dynamic / E1 kinematic) | Yaw inertia I_zz | kg·m² | 500 – 3000 | 10 | user-supplied | Yaw moment of inertia (user-supplied 1100). For reference, M·l_f·l_r = 1650 kg·m² at 1150 kg. |
+| Steering & lateral dynamics (E4 dynamic / E1 kinematic) | Front cornering stiffness C_αf | N/rad | 30000 – 250000 | 1000 | Ext. E4 (estimate) | Front axle (both tyres). Estimate: 14.3/rad × front axle load; with C_αr gives ~0.7°/g understeer. |
+| Steering & lateral dynamics (E4 dynamic / E1 kinematic) | Rear cornering stiffness C_αr | N/rad | 30000 – 250000 | 1000 | Ext. E4 (estimate) | Rear axle (both tyres). Estimate: 17.5/rad × rear axle load. Lower it relative to C_αf for a more nervous, oversteering car. |
+| Steering & lateral dynamics (E4 dynamic / E1 kinematic) | Max steer angle δ_max | rad | 0.05 – 0.6 | 0.005 | Ext. E1 | Road-wheel angle at full input. Not in model.m; the seed used 0.06. |
+| Steering & lateral dynamics (E4 dynamic / E1 kinematic) | Grip utilisation (E1 only) | – | 0.5 – 1.3 | 0.01 | Ext. E1 | E1 kinematic model only: friction-circle radius = factor · F_x,max (model.m §10 uses 0.8 as a planning margin). |
 | Surfaces (extension E2) | Curb grip factor | – | 0.3 – 1.2 | 0.01 | Ext. E2 | μ multiplier on the curb band. |
 | Surfaces (extension E2) | Grass grip factor | – | 0.1 – 1.0 | 0.01 | Ext. E2 | μ multiplier on grass. |
 | Surfaces (extension E2) | Curb rolling factor | – | 0.5 – 5 | 0.1 | Ext. E2 | Rolling-coefficient multiplier on the curb band. |
@@ -334,9 +351,13 @@ asphalt surface factors (μ itself covers asphalt).
 | Barrier impacts (extension E3) | Restitution e | – | 0 – 0.8 | 0.01 | Ext. E3 | Normal velocity after impact = −e · before. |
 | Barrier impacts (extension E3) | Tangential loss k_t | – | 0 – 0.6 | 0.01 | Ext. E3 | Scrape loss of the tangential velocity, proportional to impact severity. |
 | Barrier impacts (extension E3) | Max yaw kick | rad | 0 – 1.2 | 0.01 | Ext. E3 | Largest heading change one impact may cause. |
+| Barrier impacts (extension E3) | Bounce threshold | m/s | 0 – 3 | 0.05 | Ext. E3 | Approach speeds below this are sliding contact (no bounce, no impact effects). |
 | Numerics | Physics time step dt | s | 0.001 – 0.02 | 0.0005 | model.m | model.m dt = 0.005 s. Semi-implicit Euler as in model.m; see the convergence study in docs/validation_report.md. |
 
 ## 11. Effects not in model.m (unsupported unless an extension says otherwise)
+Since 2026-10-20, E4 adds lateral dynamics, yaw inertia, sideslip build-up and a per-axle tyre force model, and E5 adds a
+launch clutch with engine inertia. The list below is model.m's own scope.
+
 Lateral dynamics, yaw inertia, sideslip build-up, tyre force model (slip ratio/angle, cornering stiffness, combined slip),
 wheel spin dynamics, suspension and roll/pitch dynamics, load transfer beyond the F_x,max formula, steering system,
 reverse gear, clutch and shift time, launch from rest, engine inertia/idle control, engine braking, coasting,
@@ -347,10 +368,13 @@ but unused), aerodynamic lift and wind, banking, kerbs and off-road surfaces, co
 
 | Id | Rule | Source |
 |---|---|---|
-| E1 | Kinematic single-track: $\beta=\arctan(\tfrac{l_r}{L}\tan\delta)$, $r=V\cos\beta\tan\delta/L$, $F_y=MVr$, grip radius $F_{grip}=$ gripUtilization·$F_{x,max}(\mu_{surf})$; if $F_y>F_{grip}$: $r=F_{grip}/(MV)$, SlipIndicator = demand/available; longitudinal limited to $\sqrt{F_{grip}^2-F_y^2}$; $\dot\psi=r$, $\dot X=V\cos(\psi+\beta)$, $\dot Y=V\sin(\psi+\beta)$, $a_y=Vr$. Cannot spin (no yaw inertia). | DESIGN_CONTRACT §2b; friction circle from model.m §10 |
+| E1 | (Optional since 2026-10-20; the default is E4.) Kinematic single-track: $\beta=\arctan(\tfrac{l_r}{L}\tan\delta)$, $r=V\cos\beta\tan\delta/L$, $F_y=MVr$, grip radius $F_{grip}=$ gripUtilization·$F_{x,max}(\mu_{surf})$; if $F_y>F_{grip}$: $r=F_{grip}/(MV)$, SlipIndicator = demand/available; longitudinal limited to $\sqrt{F_{grip}^2-F_y^2}$; $\dot\psi=r$, $\dot X=V\cos(\psi+\beta)$, $\dot Y=V\sin(\psi+\beta)$, $a_y=Vr$. Cannot spin (no yaw inertia). | DESIGN_CONTRACT §2b; friction circle from model.m §10 |
 | E2 | Surface factors on μ and $f_r$ (asphalt 1.0/1, curb 0.95, grass 0.6/4) | DESIGN_CONTRACT §2b, provisional gameplay values |
-| E3 | Barrier impulse: $u_n'=-e\,u_n$, $u_t'=(1-k_t|u_n|/\max(V,\varepsilon))u_t$, heading re-aligned ≤ maxYawKick, push-out, severity $|u_n|$, contact latching; while latched, a sustained-contact constraint removes the approaching normal velocity ($V'=\sqrt{V^2-u_n^2}$, no bounce, no heading change) so pressing into a wall cannot build speed | DESIGN_CONTRACT §2b |
-| S1 | Clutch-slip launch: gear 1, wheel rpm < 3500, throttle > 0.1 → rpm = max(wheel, 1000 + throttle·2500) | monaco.html l. 209–215 |
+| E3 | Barrier impulse: $u_n'=-e\,u_n$, $u_t'=(1-k_t|u_n|/\max(V,\varepsilon))u_t$, heading re-aligned ≤ maxYawKick, push-out, severity $|u_n|$, contact latching; while latched, a sustained-contact constraint removes the approaching normal velocity ($V'=\sqrt{V^2-u_n^2}$, no bounce, no heading change) so pressing into a wall cannot build speed. Approaches slower than the bounce threshold (1 m/s, as Box2D's default) are sliding contact (no impulse). With E4 the velocity after the response is re-expressed in the new body frame ($v_x\ge0$) and $r$ is scaled by $V'/V$ | DESIGN_CONTRACT §2b, §8 |
+| E4 | Dynamic single-track model, §15 | user request 2026-10-20; I_zz and M user-supplied, C_α estimated |
+| E5 | Physical launch clutch, §16 | user request 2026-10-20 (replaces S1 by default) |
+| C1 | Correction of model.m §7: grip limit on the tyre force, §17 | user-approved 2026-10-20 |
+| S1 | (Optional since 2026-10-20: `LaunchModel = SeedRule`.) Clutch-slip launch: gear 1, wheel rpm < 3500, throttle > 0.1 → rpm = max(wheel, 1000 + throttle·2500) | monaco.html l. 209–215 |
 | S2 | Torque clamp rpm < 1000 → T(1000) | monaco.html `getTorque` |
 | S3 | Fuel cut rpm ≥ 6500 → T = 0; limiter flag for HUD/audio | monaco.html `getTorque` + l. 218–223 (rpm remap dropped) |
 | S4 | Coast engine brake 30 Nm·i_g·i_fd/R_w | monaco.html l. 244 |
@@ -392,3 +416,124 @@ fixed import rotation, applied once in the asset pipeline (`tools/asset_pipeline
    16.89 s, 56.1 m / 2.20 s, R2 122.66 km/h) are confirmed. Contract interpretation `car.c` = CG→rear (l_r = c) agrees with
    model.m's comment and with the F_x,max numerator (front static load = W c/L).
 8. Contract "Oval … CCW" is a game choice; model.m has no direction or planar geometry.
+
+## 15. E4: dynamic single-track (bicycle) model
+
+**State.** The body-frame velocities $v_x$ (`VehicleState.V`, ≥ 0) and $v_y$ (`Vy`), the yaw rate $r$ (`YawRate`), and the
+pose $X, Y, \psi$. Axes: x forward, y left, r counter-clockwise. Geometry: $l_r = c$ (model.m), $l_f = L - c$.
+
+**Axle loads.** The static split, plus longitudinal transfer using the previous step's $a_x$, with the same $h$ that
+model.m uses in $F_{x,max}$:
+$$F_{zf} = \frac{M g\cos\theta\, l_r}{L} - \frac{M a_x h}{L}, \qquad F_{zr} = M g\cos\theta - F_{zf}$$
+Each load is clamped to 5–95 % of the weight.
+
+**Friction circles per axle.** These are applied longitudinal force first:
+- $G_f = \mu_{eff} F_{zf}$ and $G_r = \mu_{eff} F_{zr}$;
+- $F_{y,max} = \sqrt{G^2 - F_x^2}$ on each axle.
+
+The axle longitudinal forces come from model.m's branches:
+- **Drive:** front only (FWD). The tyre force is limited by model.m's $F_{x,max}$ (see C1).
+- **Braking:** model.m's total force, split by axle load.
+- **Coasting:** the seed engine brake, on the front axle.
+
+Accelerating or braking in a corner therefore costs lateral grip: power understeer, and trail-braking rotation.
+
+**Slip angles and tyre forces.**
+$$\alpha_f = \delta - \operatorname{atan2}(v_y + l_f r,\ v_x), \qquad \alpha_r = -\operatorname{atan2}(v_y - l_r r,\ v_x)$$
+$$F_{yf} = F_{yf,max}\tanh\!\left(\frac{C_{\alpha f}\,\alpha_f}{F_{yf,max}}\right), \qquad F_{yr} = F_{yr,max}\tanh\!\left(\frac{C_{\alpha r}\,\alpha_r}{F_{yr,max}}\right)$$
+The tanh is linear for small slip angles (slope $C_\alpha$) and saturates smoothly at the friction limit.
+
+**Equations of motion.** $F_x^{m.m}$ is model.m's longitudinal force (drive, brake or coast branch, including resistances),
+$M_{eq}$ the branch's equivalent mass, and $F_{xf}$ the front axle's longitudinal tyre force:
+$$\dot v_x = \frac{F_x^{m.m} + F_{xf}(\cos\delta - 1) - F_{yf}\sin\delta}{M_{eq}} + v_y r$$
+$$\dot v_y = \frac{F_{yf}\cos\delta + F_{xf}\sin\delta + F_{yr}}{M} - v_x r$$
+$$\dot r = \frac{l_f\,(F_{yf}\cos\delta + F_{xf}\sin\delta) - l_r F_{yr}}{I_{zz}}$$
+With $\delta = v_y = r = 0$ every added term is exactly zero, and the straight-line update is model.m's verbatim
+(`Dynamic_StraightLine_IsBitIdenticalToKinematic`).
+
+**Integration.** Semi-implicit Euler, like model.m.
+- New velocities first: $v_x$ exactly as model.m, then $v_y$ and $r$.
+- Position from the body-frame displacement $(v_x' dt + \tfrac12 a dt^2,\ v_y' dt)$, rotated by the midpoint heading.
+- Odometer: the displacement length.
+
+**Low speed.** Slip angles are undefined at standstill. Between 1.5 and 4 m/s, $v_y$ and $r$ are blended (smoothstep)
+toward the kinematic values $v_y = v_x \tfrac{l_r}{L}\tan\delta$ and $r = v_x\tan\delta/L$, and below 1.5 m/s they are
+fully kinematic.
+
+**Parameters.**
+
+| Parameter | Value | Source |
+|---|---|---|
+| $I_{zz}$ | 1100 kg·m² | user-supplied (same as the Gazebo URDF). For comparison, the common estimate $M l_f l_r$ = 1650 kg·m² at 1150 kg, so 1100 makes the car comparatively agile. |
+| $M$ | 1150 kg | user-supplied; model.m uses 1420 kg |
+| $C_{\alpha f}$ | 100 000 N/rad | estimate: 14.3/rad × front axle load (1150 kg) |
+| $C_{\alpha r}$ | 75 000 N/rad | estimate: 17.5/rad × rear axle load |
+
+The two cornering stiffnesses are estimates, not measurements, chosen so that the understeer gradient
+$K = M(l_r/C_{\alpha f} - l_f/C_{\alpha r})/L = 1.3\cdot10^{-3}$ s²/m at 1150 kg (about 0.7°/g). That is mild
+understeer, typical of a sporty FWD hatchback; the characteristic speed is about 157 km/h.
+
+**Checks.**
+- The steady-state yaw-rate gain matches the linear bicycle result $r = v_x\delta/(L + K v_x^2)$ within 0.25 %.
+- Full lock at 25 m/s saturates at $|a_y| = 8.46$ m/s², below μg = 8.83.
+- Step steer settles.
+- The response is symmetric.
+- Random inputs stay finite.
+
+The tests are in `tests/VehicleDynamics.Tests/DynamicModelTests.cs`.
+
+**Not modelled.**
+- Lateral load transfer and per-wheel forces (single-track model).
+- Tyre relaxation length.
+- Combined slip beyond the friction-circle priority.
+- Load sensitivity of $C_\alpha$.
+- Aligning torque and steering feel.
+
+## 16. E5: physical launch clutch
+
+model.m has no clutch: from rest the engine is pinned to the wheels at 0 rpm. The JS seed instead held the engine at
+1000 + 2500·throttle rpm in 1st until the wheels caught up (S1). With full throttle that meant 3500 rpm, flat, up to
+28 km/h. E5 replaces this with an automatic launch clutch and an engine-speed state $\omega_e$:
+
+- **Engagement.** $e = \mathrm{smoothstep}\big((n_e - n_{idle})/(n_{bite} - n_{idle})\big)$, so the clutch is open at idle
+  (no creep) and engages as the engine revs.
+- **Clutch torque.** $T_c = e\,C_{max}\,\mathrm{sign}(\omega_e - \omega_{in})$, where $\omega_{in}$ is the crank speed
+  imposed by the wheels.
+- **While slipping.**
+  - Engine: $I_e\dot\omega_e = T(n_e)\,\text{throttle} - T_{fric} - T_c$, with $T_{fric}$ the seed's 30 N·m engine brake at
+    closed throttle, and an idle-governor floor at 1000 rpm.
+  - Driveline force: $T_c\, i_g i_{fd}\eta_t/R_w$.
+  - Equivalent mass: $\max\!\big(M,\ M(1+mf_g) - I_e (i_g i_{fd}/R_w)^2\big)$, because the engine inertia is decoupled.
+- **Lock** when $\omega_{in}$ reaches $\omega_e$. From then on it is model.m's locked driveline.
+- **Unlock** when the wheel-driven engine speed would drop below idle.
+
+**Parameters.**
+
+| Parameter | Value | Source |
+|---|---|---|
+| $I_e$ | 0.29 kg·m² | derived from model.m: the 1st/2nd-gear mass factors fit $a + b\,(i_g i_{fd})^2$ with $b = 0.002224$, and $I_e = b M R_w^2$ at model.m's M = 1420 kg |
+| $C_{max}$ | 200 N·m | provisional, 1.25 × the 160 N·m peak |
+| $n_{bite}$ | 3000 rpm | provisional |
+
+**Result at full throttle.** The engine settles near 2280 rpm while slipping, and the clutch transmits enough torque to
+saturate the front tyres. The launch is grip-limited at about 4.3 m/s² (1150 kg), and the clutch locks at 18.8 km/h
+after 1.49 s with an rpm step below 10 rpm. At throttle 0.3 the launch is gentle (≤ 1.24 m/s²) and never stalls.
+
+With the clutch open, a car at rest on a downhill rolls (there is no engine braking through an open clutch) until the
+wheel-driven engine speed reaches idle. The clutch then locks and engine braking holds the speed.
+
+## 17. C1: grip limit on the tyre force (correction of model.m §7)
+
+model.m computes $a = (\min(F_{drive}, F_{x,max}) - F_{res})/M_{eq}$. It caps the *driveline* force and then divides by the
+equivalent mass, which includes the rotating inertia. But the tyre transmits only
+$F_{tyre} = F_{drive} - (M_{eq} - M)\,a$; the rest spins up the engine, gearbox and wheels.
+
+C1 computes the unlimited $a_u = (F_{drive} - F_{res})/M_{eq}$ and the tyre force it implies:
+- If $F_{tyre} \le F_{x,max}$: $a = a_u$.
+- Otherwise the tyre is grip-limited: $a = (F_{x,max} - F_{res})/M$ (the wheels spin up; there is no wheel-slip state).
+
+In 1st gear with the engine engaged, the corrected tyre force (about 4.5 kN) is below $F_{x,max}$, so C1 changes the
+acceleration by about 7 %, not more. The large launch gain comes from E5, where the engine inertia is decoupled while
+slipping.
+
+The MATLAB validation runs with C1 off (`VehicleParameters.FromReference`), and the reference layer is untouched.

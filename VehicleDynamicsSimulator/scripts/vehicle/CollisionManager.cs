@@ -74,10 +74,14 @@ public sealed class CollisionManager
         InContact = true;
 
         var p = dyn.Parameters;
-        var input = new CollisionInput(cx, cy, s.Psi, dyn.Outputs.Beta, s.V, k.NormalX, k.NormalY, k.Penetration,
+        // Speed and velocity angle of the CG (with E4 these include v_y, not just v_x).
+        var input = new CollisionInput(cx, cy, s.Psi, dyn.VelocityAngle, dyn.Speed, k.NormalX, k.NormalY, k.Penetration,
             p.CollisionRestitution, p.CollisionFrictionLoss, p.CollisionMaxYawKick);
         bool wasLatched = _latch.Latched;
-        bool impulse = _latch.Update(true, CollisionResponse.NormalSpeed(input));
+        double un = CollisionResponse.NormalSpeed(input);
+        bool impulse = _latch.Update(true, un);
+        // Slow approaches are resting/sliding contact: non-penetration only, no bounce and no impact event.
+        if (impulse && -un < p.CollisionBounceThreshold) impulse = false;
         if (wasLatched && !_latch.Latched) Rearms++;
         if (impulse && _impulseLastStep) ConsecutiveImpulses++;
         _impulseLastStep = impulse;

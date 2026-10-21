@@ -15,8 +15,10 @@ scenarios.
   - procedural engine audio locked to the model's rpm;
   - a textured 2011 Mini JCW (R56) GP model with interior, scaled to model.m's wheelbase, viewed through chase, bonnet
     and cockpit cameras.
-- **Validation** (`validation/`, `tests/`). Golden data comes from the unmodified model.m; 105 unit tests and a
-  21-check in-game self-test.
+- **Handling and controls.** A dynamic single-track lateral model (slip angles, yaw inertia) and a physical launch
+  clutch. Gamepad support (Logitech F710 / XInput) with analog throttle, brake and steering.
+- **Validation** (`validation/`, `tests/`). Golden data comes from the unmodified model.m; 118 unit tests and a
+  29-check in-game self-test.
 
 ## Quick start
 

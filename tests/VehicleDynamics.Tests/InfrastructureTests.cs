@@ -166,9 +166,11 @@ public class InfrastructureTests
         var header = lines.First(l => !l.StartsWith('#'));
         Assert.Equal("t_s,x_m,y_m,psi_rad,v_mps,v_kmh,vx_mps,vy_mps,yaw_rate_rps,beta_rad,ax_mps2,ay_mps2,gear,engine_rpm," +
                      "throttle,brake,steer_rad,f_tractive_n,f_tractive_eff_n,f_x_max_n,f_drag_n,f_rolling_n,f_grade_n,f_brake_n," +
-                     "grip_usage,slip_indicator,track_s_m,track_lateral_m,surface,lap,lap_time_s,collision_severity_mps,event", header);
+                     "grip_usage,slip_indicator,track_s_m,track_lateral_m,surface,lap,lap_time_s,collision_severity_mps,event," +
+                     "alpha_f_rad,alpha_r_rad,f_yf_n,f_yr_n,f_zf_n,f_zr_n,clutch_locked,clutch_slip_rpm", header);
         var row = lines[Array.IndexOf(lines, header) + 1].Split(',');
-        Assert.Equal(33, row.Length);
+        Assert.Equal(41, row.Length);
+        Assert.Equal(header.Split(',').Length, row.Length);
     }
 
     [Fact]

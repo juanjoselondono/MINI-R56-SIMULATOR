@@ -42,10 +42,13 @@ VehicleDynamics.Core
 The reference layer reproduces MATLAB to max relative error 0 (`docs/validation_report.md`). The interactive layer uses
 the same equations with driver inputs. Everything that model.m does not contain is labelled as an extension and
 grouped separately in `VehicleParameters`:
-- **E1:** kinematic single-track model limited by the friction circle.
+- **E4 (default):** dynamic single-track model (slip angles, per-axle friction circles, yaw inertia). E1, the kinematic
+  single-track model limited by a friction circle, stays selectable.
 - **E2:** surface factors for curb and grass.
-- **E3:** barrier impulse and the sustained-contact constraint.
-- **Seed-game rules:** clutch launch, idle clamp, fuel cut, engine braking, money shift.
+- **E3:** barrier impulse, the sustained-contact constraint and a 1 m/s bounce threshold.
+- **E5 (default):** physical launch clutch with an engine-speed state.
+- **C1:** grip limit on the tyre force, a correction of model.m §7 (default on; off for MATLAB validation).
+- **Seed-game rules:** idle clamp, fuel cut, engine braking, money shift; the seed clutch launch is optional.
 
 The model and its extensions are described in `docs/vehicle_model.md`.
 
@@ -62,7 +65,7 @@ sequenceDiagram
     VC->>VC: sample raw targets once (keyboard/gamepad or Autopilot), shift edges
     VC->>L: Advance(delta, levels)
     loop n = clock steps (fixed dt = 0.005 s)
-        L->>VC: BeforeStep: InputShaper.Update(dt), steering assist, δ = steer·δmax
+        L->>VC: BeforeStep: keyboard → InputShaper.Update(dt) / gamepad → direct, steering assist, δ = steer·δmax
         L->>SM: BeforeStep: surface = Track.SurfaceAt(X, Y)   [E2]
         L->>VD: Step(u, dt)   (semi-implicit Euler as in model.m)
         L->>SM: AfterStep: CollisionManager → ApplyCollision [E3]; LapTimer; telemetry events/live buffer

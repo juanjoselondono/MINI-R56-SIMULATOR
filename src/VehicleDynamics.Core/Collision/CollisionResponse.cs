@@ -8,9 +8,10 @@ public readonly record struct CollisionInput(
     double Restitution = 0.25, double FrictionLoss = 0.15, double MaxYawKick = 0.6);
 
 /// <param name="SustainedContact">true when no impulse was due (latched) but the approaching normal velocity was removed.</param>
+/// <param name="VelocityHeading">World direction of the CG velocity after the response [rad] (NaN if it is zero).</param>
 public readonly record struct CollisionResult(
     bool ImpulseApplied, double X, double Y, double Psi, double V, double Severity, double NormalSpeed,
-    bool SustainedContact = false);
+    bool SustainedContact = false, double VelocityHeading = double.NaN);
 
 /// <summary>
 /// EXTENSION E3 (not in MATLAB): barrier impact for a car whose velocity is V along psi + beta.
@@ -41,7 +42,7 @@ public static class CollisionResponse
         double ux = c.V * Math.Cos(h), uy = c.V * Math.Sin(h);
         double un = ux * nx + uy * ny;
         if (!allowImpulse || !(un < 0))
-            return new CollisionResult(false, x, y, c.Psi, c.V, 0, un);
+            return new CollisionResult(false, x, y, c.Psi, c.V, 0, un, VelocityHeading: c.V > 0 ? h : double.NaN);
 
         double e = Math.Clamp(c.Restitution, 0, 1);
         double kt = Math.Clamp(c.FrictionLoss, 0, 1);
@@ -53,13 +54,14 @@ public static class CollisionResponse
         double vNew = Math.Sqrt(upx * upx + upy * upy);
 
         double psi = c.Psi;
+        double target = double.NaN;
         if (vNew > 1e-9)
         {
-            double target = Math.Atan2(upy, upx);
+            target = Math.Atan2(upy, upx);
             double d = FrameConversion.WrapAngle(target - h);
             psi = c.Psi + Math.Clamp(d, -c.MaxYawKick, c.MaxYawKick);
         }
-        return new CollisionResult(true, x, y, psi, vNew, Math.Abs(un), un);
+        return new CollisionResult(true, x, y, psi, vNew, Math.Abs(un), un, VelocityHeading: target);
     }
 }
 
@@ -76,7 +78,12 @@ public static class SustainedContact
         var r = CollisionResponse.Resolve(c, allowImpulse: false);
         if (!(r.NormalSpeed < 0)) return r;
         double vt2 = Math.Max(0, c.V * c.V - r.NormalSpeed * r.NormalSpeed);
-        return r with { V = Math.Sqrt(vt2), SustainedContact = true };
+        double nl = Math.Sqrt(c.NormalX * c.NormalX + c.NormalY * c.NormalY);
+        double h = c.Psi + c.Beta;
+        double tx = c.V * Math.Cos(h) - r.NormalSpeed * c.NormalX / nl;
+        double ty = c.V * Math.Sin(h) - r.NormalSpeed * c.NormalY / nl;
+        double vNew = Math.Sqrt(vt2);
+        return r with { V = vNew, SustainedContact = true, VelocityHeading = vNew > 1e-12 ? Math.Atan2(ty, tx) : double.NaN };
     }
 }
 

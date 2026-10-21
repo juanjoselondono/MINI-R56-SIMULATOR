@@ -67,7 +67,8 @@ public class InteractiveModelTests
     [InlineData(-15, 1, false)]
     public void ZeroThrottle_OnSlope_DocumentedBehaviour(double slopePct, double brake, bool expectRollForward)
     {
-        var p = new VehicleParameters { SlopeValue = slopePct };
+        // Seed clutch rule: the engine is always tied to the wheels, so its braking torque holds a stationary car.
+        var p = new VehicleParameters { SlopeValue = slopePct, LaunchModel = LaunchModel.SeedRule };
         var d = Car(p);
         Run(d, new VehicleInputs { Brake = brake }, 5);
         _out.WriteLine($"slope {slopePct}% brake {brake}: V after 5 s = {d.State.V:F4} m/s, distance {d.State.Distance:F3} m");
@@ -143,7 +144,7 @@ public class InteractiveModelTests
     [Fact]
     public void Engine_IdleClampFuelCutAndClutch()
     {
-        var p = new VehicleParameters();
+        var p = new VehicleParameters { LaunchModel = LaunchModel.SeedRule };
         var e = new EngineModel(p);
         Assert.Equal(75, e.Torque(500), 12);
         Assert.Equal(75, e.Torque(1000), 12);
@@ -198,7 +199,7 @@ public class InteractiveModelTests
     [Fact]
     public void KinematicBicycle_ConstantRadiusBelowGrip()
     {
-        var p = new VehicleParameters();
+        var p = new VehicleParameters { LateralModel = LateralModel.Kinematic, GripLimitOnTyreForce = false };
         double delta = 0.1;
         var d = Car(p, 8, 1);
         var pts = new List<(double X, double Y)>();
@@ -222,7 +223,7 @@ public class InteractiveModelTests
     [Fact]
     public void Understeer_SaturatesLateralForce()
     {
-        var p = new VehicleParameters();
+        var p = new VehicleParameters { LateralModel = LateralModel.Kinematic, GripLimitOnTyreForce = false };
         var d = Car(p, 25, 3);
         d.Step(new VehicleInputs { SteerAngle = 0.1, Throttle = 0.3 }, 0.005);
         var o = d.Outputs;
@@ -241,7 +242,7 @@ public class InteractiveModelTests
     [Fact]
     public void FrictionCircle_CouplesLongitudinalAndLateral()
     {
-        var p = new VehicleParameters();
+        var p = new VehicleParameters { LateralModel = LateralModel.Kinematic, GripLimitOnTyreForce = false };
         double fGrip = TractionLimit.FxMax(p, p.Mu);
         double target = 0.6 * fGrip; // lateral demand
         // M v^2 cos(beta) tan(delta) / L = target  with v = 8 m/s
@@ -288,7 +289,7 @@ public class InteractiveModelTests
     public void InteractiveR1_AgreesWithMatlabHistory()
     {
         var mat = TestData.ReadCsv(Path.Combine(TestData.Dir, "matlab_S01", "r1_history.csv"));
-        var p = new VehicleParameters { ClutchLaunch = false };
+        var p = new VehicleParameters { ClutchLaunch = false, GripLimitOnTyreForce = false };
         var reference = ReferenceModel.Build(ReferenceParameters.Default);
         var d = Car(p, reference.VGearKmh[0].Min() / 3.6, 1);
         var u = new VehicleInputs { Throttle = 1, AutoShift = true };

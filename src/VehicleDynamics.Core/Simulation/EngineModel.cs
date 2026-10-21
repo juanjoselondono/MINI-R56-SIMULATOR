@@ -34,13 +34,14 @@ public sealed class EngineModel
     public static double WheelRpm(double v, double rw, double totalRatio) => (v / rw) * totalRatio * (60 / (2 * Math.PI));
 
     /// <summary>
-    /// Engine speed from wheel speed. Clutch launch rule taken from the JS seed (not in MATLAB):
+    /// Engine speed from wheel speed (clutch locked). Seed clutch rule (JS seed, not in MATLAB; only with LaunchModel.SeedRule):
     /// in 1st gear below the clutch target with throttle above the threshold,
     /// rpm = max(wheel_rpm, idle + throttle * (target - idle)); otherwise max(idle, wheel_rpm).
     /// </summary>
     public double EngineRpm(double wheelRpm, int gear, double throttle)
     {
-        if (_p.ClutchLaunch && gear == 1 && wheelRpm < _p.ClutchTargetRpm && throttle > _p.ClutchThrottleThreshold)
+        if (_p.ClutchLaunch && _p.LaunchModel == LaunchModel.SeedRule && gear == 1 && wheelRpm < _p.ClutchTargetRpm
+            && throttle > _p.ClutchThrottleThreshold)
             return Math.Max(_p.IdleRpm + throttle * (_p.ClutchTargetRpm - _p.IdleRpm), wheelRpm);
         return Math.Max(_p.IdleRpm, wheelRpm);
     }

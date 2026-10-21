@@ -38,7 +38,7 @@ Put both lines in `~/.bashrc` if you launch the editor from a desktop shortcut.
 
 ```bash
 dotnet build VehicleDynamics.sln          # core library, both test projects, validation runner
-dotnet test VehicleDynamics.sln           # 94 core tests (incl. golden MATLAB data) + 11 game-logic tests
+dotnet test VehicleDynamics.sln           # 107 core tests (incl. golden MATLAB data) + 11 game-logic tests
 ```
 
 - `tests/VehicleDynamics.Tests`: the physics core. The golden-data tests read `validation/golden/**`, which is
@@ -93,9 +93,9 @@ The car starts at rest on the start/finish line. The lap clock starts when the c
 
 | Key | Gamepad | Action |
 |---|---|---|
-| W / ↑ | RT | throttle |
-| S / ↓ | LT | brake |
-| A D / ← → | left stick | steer. A speed-sensitive input assist reduces the command at speed; the model still clamps δ to δ_max. |
+| W / ↑ | RT (analog) | throttle |
+| S / ↓ | LT (analog) | brake |
+| A D / ← → | left stick X (analog) | steer. Stick response is \|x\|^1.5 for precision near centre. A speed-sensitive input assist divides the command by 1 + (V/25 m/s)²; the model still clamps δ to δ_max. |
 | E / Q | RB / LB | shift up / down (manual) |
 | T | – | toggle auto-shift (model.m gear rule: lowest gear whose 6500-rpm speed ≥ V) |
 | R | Back | restart: grid, at rest, laps cleared, engine repaired |
@@ -111,6 +111,18 @@ The car starts at rest on the start/finish line. The lap clock starts when the c
 | Esc | – | back to the main menu (unexported recordings of the session are discarded) |
 
 While a text or number field has focus, driving keys and shortcuts are ignored. Press Enter to leave the field.
+
+### Gamepad (Logitech F710 and other XInput pads)
+
+- **Mode switch.** Set the F710's switch on the back to **X** (XInput). Godot then maps it to its standard layout, and a
+  "Gamepad connected" message appears in the game. In D (DirectInput) mode the pad has no standard mapping, and the game
+  tells you to switch.
+- **Analog inputs.** Triggers and stick are passed to the model directly. The keyboard's rate limits (ramps) are applied
+  only while the last input came from the keyboard; touching a key switches back.
+- **Deadzones.** 0.05 on the triggers and 0.10 on the stick.
+- **Remapping.** All bindings live in `project.godot`'s Input Map (Project → Project Settings → Input Map in the editor).
+  To regenerate the defaults:
+  `$GODOT --headless --path VehicleDynamicsSimulator --script res://tools/write_input_map.gd`.
 
 ### Panels
 
@@ -152,7 +164,7 @@ These go after `--`. They skip the main menu.
 
 ```bash
 # In-game self-test on both tracks (21 checks), deterministic; exit code 0 = all pass
-$GODOT --headless --fixed-fps 60 --path . -- --selftest
+$GODOT --headless --fixed-fps 60 --path . -- --selftest   # 29 checks
 
 # Full throttle with auto-shift for N simulated seconds; prints the physical state and quits.
 # The printed state is bit-identical for any --fixed-fps (frame-rate independence check).

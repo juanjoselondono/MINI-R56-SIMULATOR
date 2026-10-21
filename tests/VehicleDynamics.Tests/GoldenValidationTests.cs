@@ -150,6 +150,7 @@ public class GoldenValidationTests
         var t = ReferenceModel.Build(rp);
         var vp = VehicleParameters.FromReference(rp);
         vp.ClutchLaunch = clutch;
+        vp.LaunchModel = LaunchModel.SeedRule; // this study quantifies the seed clutch rule
         var dyn = new Dyn(vp);
         var s = VehicleState.AtRest();
         s.V = t.VGearKmh[0].Min() / 3.6;

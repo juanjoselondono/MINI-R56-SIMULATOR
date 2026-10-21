@@ -26,6 +26,9 @@ public struct TelemetrySample
     public int Lap;
     public double LapTime, CollisionSeverity;
     public string Event;
+    // Appended columns (E4 dynamic single-track, E5 launch clutch)
+    public double AlphaFront, AlphaRear, FyFront, FyRear, FzFront, FzRear, ClutchSlipRpm;
+    public bool ClutchLocked;
     /// <summary>Odometer [m] (kept for comparisons; not a §6 column).</summary>
     public double Distance;
 }
@@ -84,6 +87,7 @@ public sealed class SimulationRecorder
         "ay_mps2", "gear", "engine_rpm", "throttle", "brake", "steer_rad", "f_tractive_n", "f_tractive_eff_n",
         "f_x_max_n", "f_drag_n", "f_rolling_n", "f_grade_n", "f_brake_n", "grip_usage", "slip_indicator",
         "track_s_m", "track_lateral_m", "surface", "lap", "lap_time_s", "collision_severity_mps", "event",
+        "alpha_f_rad", "alpha_r_rad", "f_yf_n", "f_yr_n", "f_zf_n", "f_zr_n", "clutch_locked", "clutch_slip_rpm",
     };
 
     private readonly int _stepsPerSample;
@@ -165,6 +169,8 @@ public sealed class SimulationRecorder
             FBrake = o.FBrake, GripUsage = o.GripUsage, SlipIndicator = o.SlipIndicator, TrackS = t.S,
             TrackLateral = t.Lateral, Surface = t.Surface, Lap = t.Lap, LapTime = t.LapTime,
             CollisionSeverity = t.CollisionSeverity, Event = evt, Distance = s.Distance,
+            AlphaFront = o.AlphaFront, AlphaRear = o.AlphaRear, FyFront = o.FyFront, FyRear = o.FyRear,
+            FzFront = o.FzFront, FzRear = o.FzRear, ClutchLocked = o.ClutchLocked, ClutchSlipRpm = o.ClutchSlipRpm,
         };
     }
 
@@ -192,7 +198,10 @@ public sealed class SimulationRecorder
             F(s.GripUsage); F(s.SlipIndicator); F(s.TrackS); F(s.TrackLateral);
             sb.Append(s.Surface.ToString().ToLowerInvariant()).Append(',');
             sb.Append(s.Lap).Append(','); F(s.LapTime); F(s.CollisionSeverity);
-            sb.Append((s.Event ?? "").Replace(',', ';'));
+            sb.Append((s.Event ?? "").Replace(',', ';')).Append(',');
+            F(s.AlphaFront); F(s.AlphaRear); F(s.FyFront); F(s.FyRear); F(s.FzFront); F(s.FzRear);
+            sb.Append(s.ClutchLocked ? 1 : 0).Append(',');
+            sb.Append(s.ClutchSlipRpm.ToString("R", CultureInfo.InvariantCulture));
             sb.Append('\n');
             w.Write(sb.ToString());
         }

@@ -91,6 +91,14 @@ public sealed class InputShaper
 
     public void Reset() => Throttle = Brake = Steer = 0;
 
+    /// <summary>Analog devices (gamepad triggers / stick) bypass the keyboard rate limits.</summary>
+    public void SetImmediate(double throttle, double brake, double steer)
+    {
+        Throttle = Math.Clamp(throttle, 0, 1);
+        Brake = Math.Clamp(brake, 0, 1);
+        Steer = Math.Clamp(steer, -1, 1);
+    }
+
     private static double Ramp(double cur, double target, double up, double down, double dt)
     {
         if (target > cur) return Math.Min(target, cur + up * dt);

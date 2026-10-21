@@ -7,10 +7,17 @@ public enum SlopeMode { Deg, Pct, Rad }
 
 public enum Surface { Asphalt = 0, Curb = 1, Grass = 2, Barrier = 3 }
 
+/// <summary>E1 = kinematic single-track with a friction circle; E4 = dynamic single-track (slip angles, yaw inertia).</summary>
+public enum LateralModel { Kinematic, Dynamic }
+
+/// <summary>Standing-start model when <see cref="VehicleParameters.ClutchLaunch"/> is on.</summary>
+public enum LaunchModel { PhysicalClutch, SeedRule }
+
 /// <summary>
 /// Parameters of the interactive model. Group 1 = model.m inputs (defaults identical to model.m).
-/// Group 2 = seed-game rules (reference/js_seed/monaco.html). Group 3 = extensions E1-E3 (not in MATLAB,
-/// provisional gameplay values). Call <see cref="Validate"/> (or <see cref="EnsureValid"/>) after editing.
+/// Group 2 = seed-game rules (reference/js_seed/monaco.html). Group 3 = extensions E1-E5 and correction C1 (not in
+/// MATLAB; sources and provisional values documented per property). Class defaults are model.m's; the game starts from
+/// <see cref="GameDefaults"/>. Call <see cref="Validate"/> (or <see cref="EnsureValid"/>) after editing.
 /// </summary>
 public sealed class VehicleParameters
 {
@@ -72,10 +79,60 @@ public sealed class VehicleParameters
     public double CollisionFrictionLoss { get; set; } = 0.15;
     /// <summary>E3 maximum heading change per impact [rad].</summary>
     public double CollisionMaxYawKick { get; set; } = 0.6;
+    /// <summary>
+    /// E3 bounce threshold [m/s]: approaches slower than this are resting/sliding contact (no impulse, no bounce), as in
+    /// rigid-body engines (Box2D's default velocity threshold is the same 1 m/s). Prevents micro-bounce chatter when the
+    /// E4 tyres keep pushing the car into a wall.
+    /// </summary>
+    public double CollisionBounceThreshold { get; set; } = 1.0;
     /// <summary>E2 grip factor multiplying mu: [asphalt, curb, grass].</summary>
     public double[] SurfaceGripFactor { get; set; } = { 1.0, 0.95, 0.6 };
     /// <summary>E2 factor multiplying the rolling coefficient: [asphalt, curb, grass]. Curb value 1.0 is a provisional choice.</summary>
     public double[] SurfaceRollingFactor { get; set; } = { 1.0, 1.0, 4.0 };
+
+    /// <summary>
+    /// C1 (correction of model.m §7): F_x,max limits the TYRE force, i.e. the driveline force minus the part that spins up
+    /// the rotating inertia ((M_eq − M)·a); a grip-limited tyre force accelerates the bare mass M. false = model.m
+    /// exactly (driveline force capped at F_x,max, divided by M_eq). Validation runs with false.
+    /// </summary>
+    public bool GripLimitOnTyreForce { get; set; } = true;
+
+    /// <summary>E4 (default) dynamic single-track, or E1 kinematic.</summary>
+    public LateralModel LateralModel { get; set; } = LateralModel.Dynamic;
+    /// <summary>E4 yaw moment of inertia I_zz [kg m²]. User-supplied (2026-10-20), same value as the Gazebo URDF.</summary>
+    public double YawInertia { get; set; } = 1100;
+    /// <summary>
+    /// E4 front-axle cornering stiffness C_αf [N/rad]. ESTIMATE: ~14.3/rad × the 1150 kg front axle load, chosen with
+    /// <see cref="CorneringStiffnessRear"/> for ~0.7 deg/g understeer (sporty FWD hatchback). Not measured.
+    /// </summary>
+    public double CorneringStiffnessFront { get; set; } = 100000;
+    /// <summary>E4 rear-axle cornering stiffness C_αr [N/rad]. ESTIMATE: ~17.5/rad × the 1150 kg rear axle load. Not measured.</summary>
+    public double CorneringStiffnessRear { get; set; } = 75000;
+    /// <summary>E4 numerics: below this longitudinal speed [m/s] the lateral states follow the kinematic model.</summary>
+    public double DynamicBlendLowSpeed { get; set; } = 1.5;
+    /// <summary>E4 numerics: above this speed [m/s] the lateral states are fully dynamic (smoothstep blend in between).</summary>
+    public double DynamicBlendHighSpeed { get; set; } = 4.0;
+
+    /// <summary>Which standing-start model <see cref="ClutchLaunch"/> enables: E5 physical clutch (default) or the seed rule.</summary>
+    public LaunchModel LaunchModel { get; set; } = LaunchModel.PhysicalClutch;
+    /// <summary>
+    /// E5 engine + flywheel inertia at the crank [kg m²]. DERIVED from model.m: fitting the 1st/2nd-gear mass factors as
+    /// a + b·(i_g i_fd)² gives b = 0.002224, and I_e = b·M·R_w² = 0.29 with model.m's M = 1420 kg.
+    /// </summary>
+    public double EngineInertia { get; set; } = 0.29;
+    /// <summary>E5 clutch torque capacity at full engagement [N m]. PROVISIONAL: 1.25 × the 160 N m peak engine torque.</summary>
+    public double ClutchCapacity { get; set; } = 200;
+    /// <summary>
+    /// E5 launch engagement: engagement = smoothstep((rpm_e − idle) / (bite − idle)), like an automatic launch clutch.
+    /// PROVISIONAL. At full throttle the engine settles near 2300 rpm while slipping.
+    /// </summary>
+    public double ClutchBiteRpm { get; set; } = 3000;
+
+    /// <summary>
+    /// Game starting point: model.m values except the mass, M = 1150 kg (user-supplied with I_zz, 2026-10-20; model.m
+    /// uses 1420 kg). Extensions and C1 keep their defaults.
+    /// </summary>
+    public static VehicleParameters GameDefaults() => new() { Mass = 1150 };
 
     [JsonIgnore]
     public double Theta => SlopeMode switch
@@ -122,6 +179,7 @@ public sealed class VehicleParameters
             TrackFront = r.Tf, TrackRear = r.Tr, SpringFront = r.KsF, SpringRear = r.KsR, SpringSepFront = r.SF,
             SpringSepRear = r.SR, RpmRaw = (double[])r.RpmRaw.Clone(), TorqueRaw = (double[])r.TorqueRaw.Clone(),
             BrakeMuFactor = r.BrakeMuFactor, BrakeMassFactor = r.BrakeMassFactor, MarginSafety = r.MarginSafety, Dt = r.Dt,
+            GripLimitOnTyreForce = false,
         };
     }
 
@@ -190,10 +248,21 @@ public sealed class VehicleParameters
         R(nameof(BrakeInputThreshold), BrakeInputThreshold, 0, 1);
         R(nameof(ThrottleInputThreshold), ThrottleInputThreshold, 0, 1);
         R(nameof(MaxSteerAngle), MaxSteerAngle, 0.01, 0.7);
+        R(nameof(YawInertia), YawInertia, 100, 10000);
+        R(nameof(CorneringStiffnessFront), CorneringStiffnessFront, 5000, 500000);
+        R(nameof(CorneringStiffnessRear), CorneringStiffnessRear, 5000, 500000);
+        R(nameof(DynamicBlendLowSpeed), DynamicBlendLowSpeed, 0.2, 10);
+        R(nameof(DynamicBlendHighSpeed), DynamicBlendHighSpeed, DynamicBlendLowSpeed + 0.1, 20);
+        R(nameof(EngineInertia), EngineInertia, 0.02, 3);
+        R(nameof(ClutchCapacity), ClutchCapacity, 20, 2000);
+        R(nameof(ClutchBiteRpm), ClutchBiteRpm, IdleRpm + 100, FuelCutRpm);
+        if (!Enum.IsDefined(LateralModel)) e.Add("LateralModel invalid");
+        if (!Enum.IsDefined(LaunchModel)) e.Add("LaunchModel invalid");
         R(nameof(GripUtilization), GripUtilization, 0.1, 1.5);
         R(nameof(CollisionRestitution), CollisionRestitution, 0, 1);
         R(nameof(CollisionFrictionLoss), CollisionFrictionLoss, 0, 1);
         R(nameof(CollisionMaxYawKick), CollisionMaxYawKick, 0, Math.PI);
+        R(nameof(CollisionBounceThreshold), CollisionBounceThreshold, 0, 10);
         if (SurfaceGripFactor is null || SurfaceGripFactor.Length != 3) e.Add("SurfaceGripFactor must have 3 entries [asphalt, curb, grass]");
         else for (int i = 0; i < 3; i++) R($"SurfaceGripFactor[{i}]", SurfaceGripFactor[i], 0.05, 2);
         if (SurfaceRollingFactor is null || SurfaceRollingFactor.Length != 3) e.Add("SurfaceRollingFactor must have 3 entries [asphalt, curb, grass]");

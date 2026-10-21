@@ -62,8 +62,8 @@ public partial class TelemetryPanel : PanelContainer
         BuildValues(grid);
 
         content.AddChild(Wrap(UiTheme.Label(
-            "Not available (not in the model): individual tyre forces and slip ratios (model.m has an axle-level traction limit only), " +
-            "suspension travel and roll angle, yaw inertia / dynamic lateral velocity (E1 is kinematic: v_y = V·sin β), tyre temperatures.",
+            "Not available (not in the model): per-wheel forces and longitudinal slip ratios (the E4 single-track model works per axle; " +
+            "model.m has an axle-level traction limit only), suspension travel, roll and pitch, lateral load transfer, tyre temperatures.",
             10, UiTheme.Muted)));
 
         _speed = Plot("Speed [km/h]");
@@ -99,13 +99,22 @@ public partial class TelemetryPanel : PanelContainer
         V("time t", "s", "", () => F(d().State.Time, "0.00"));
         V("speed V", "km/h", "", () => F(d().State.V * 3.6, "0.0"));
         V("V", "m/s", "", () => F(d().State.V, "0.00"));
-        V("v_x", "m/s", "[E1]", () => F(d().Outputs.Vx, "0.00"));
-        V("v_y (kinematic)", "m/s", "[E1]", () => F(d().Outputs.Vy, "0.000"));
-        V("yaw rate r", "rad/s", "[E1]", () => F(d().Outputs.YawRate, "0.000"));
-        V("sideslip β", "rad", "[E1]", () => F(d().Outputs.Beta, "0.0000"));
-        V("steer δ", "rad", "[E1]", () => F(d().Outputs.SteerAngle, "0.000"));
+        string Lat() => d().Parameters.LateralModel == VehicleDynamics.Core.Simulation.LateralModel.Dynamic ? "[E4]" : "[E1]";
+        V("v_x", "m/s", "", () => F(d().Outputs.Vx, "0.00"));
+        V("v_y", "m/s", "[E4/E1]", () => F(d().Outputs.Vy, "0.000") + " " + Lat());
+        V("yaw rate r", "rad/s", "[E4/E1]", () => F(d().Outputs.YawRate, "0.000"));
+        V("sideslip β", "rad", "[E4/E1]", () => F(d().Outputs.Beta, "0.0000"));
+        V("steer δ", "rad", "", () => F(d().Outputs.SteerAngle, "0.000"));
+        V("slip angle α_f", "rad", "[E4]", () => F(d().Outputs.AlphaFront, "0.0000"));
+        V("slip angle α_r", "rad", "[E4]", () => F(d().Outputs.AlphaRear, "0.0000"));
+        V("F_y front", "N", "[E4]", () => F(d().Outputs.FyFront, "0"));
+        V("F_y rear", "N", "[E4]", () => F(d().Outputs.FyRear, "0"));
+        V("F_z front", "N", "[E4]", () => F(d().Outputs.FzFront, "0"));
+        V("F_z rear", "N", "[E4]", () => F(d().Outputs.FzRear, "0"));
+        V("clutch", "rpm slip", "[E5]", () => d().Outputs.ClutchLocked ? "locked" : F(d().Outputs.ClutchSlipRpm, "0"));
+        V("clutch torque", "N·m", "[E5]", () => F(d().Outputs.ClutchTorque, "0"));
         V("a_x", "m/s²", "", () => F(d().Outputs.Ax, "0.00"));
-        V("a_y", "m/s²", "[E1]", () => F(d().Outputs.Ay, "0.00"));
+        V("a_y", "m/s²", "[E4/E1]", () => F(d().Outputs.Ay, "0.00"));
         V("gear", "", "", () => d().State.EngineBlown ? "X" : d().State.Gear.ToString());
         V("engine speed", "rpm", "", () => F(d().State.EngineRpm, "0"));
         V("engine torque", "N·m", "", () => F(d().Outputs.EngineTorque, "0.0"));
@@ -115,8 +124,8 @@ public partial class TelemetryPanel : PanelContainer
         V("F_tractive", "N", "", () => F(d().Outputs.FTractive, "0"));
         V("F_tractive,eff", "N", "", () => F(d().Outputs.FTractiveEff, "0"));
         V("F_x,max", "N", "", () => F(d().Outputs.FxMax, "0"));
-        V("F_grip (circle)", "N", "[E1]", () => F(d().Outputs.FGrip, "0"));
-        V("F_y", "N", "[E1]", () => F(d().Outputs.Fy, "0"));
+        V("lateral grip capacity", "N", "[E4/E1]", () => F(d().Outputs.FGrip, "0"));
+        V("F_y total", "N", "[E4/E1]", () => F(d().Outputs.Fy, "0"));
         V("F_drag", "N", "", () => F(d().Outputs.FDrag, "0.0"));
         V("F_rolling", "N", "", () => F(d().Outputs.FRolling, "0.0"));
         V("F_grade", "N", "", () => F(d().Outputs.FGrade, "0.0"));
