@@ -1,0 +1,278 @@
+newmtl Wheel0021Mtl
+Material Color
+Ka 1 1 1
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078 
+
+d 1
+
+Ns 0
+
+map_Ka Wheel0021_diff.png
+map_Kd Wheel0021_diff.png
+map_d Wheel0021_diff.png
+
+newmtl Wheel0011Mtl
+Material Color
+Ka 1 1 1
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078 
+
+d 1
+
+Ns 0
+
+map_Ka Wheel0011_diff.png
+map_Kd Wheel0011_diff.png
+map_d Wheel0011_diff.png
+
+newmtl Doorrfok0011Mtl
+Material Color
+Ka 0.373615 0.368591 0.383775
+Kd 0.373615 0.368591 0.383775
+Ks 0.147981 0.145991 0.152005 
+
+d 1
+
+Ns 0
+
+newmtl Doorrfok0061Mtl
+Material Color
+Ka 0.00258583 0.00258583 0.00258583
+Kd 0.00258583 0.00258583 0.00258583
+Ks 0.00102419 0.00102419 0.00102419 
+
+d 1
+
+Ns 0
+
+newmtl Wheel1Mtl
+Material Color
+Ka 1 1 1
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078 
+
+d 1
+
+Ns 0
+
+map_Ka Wheel1_diff.png
+map_Kd Wheel1_diff.png
+map_d Wheel1_diff.png
+
+newmtl Bumprearok0011Mtl
+Material Color
+Ka 1 1 1
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078 
+
+d 1
+
+Ns 0
+
+map_Ka Bumprearok0011_diff.png
+map_Kd Bumprearok0011_diff.png
+map_d Bumprearok0011_diff.png
+
+newmtl Doorrfok0051Mtl
+Material Color
+Ka 0.00258583 0.00258583 0.00258583
+Kd 0.00258583 0.00258583 0.00258583
+Ks 0.00102419 0.00102419 0.00102419 
+
+d 0.25098
+
+Ns 0
+
+newmtl Doorrfok0071Mtl
+Material Color
+Ka 1 1 1
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078 
+
+d 1
+
+Ns 0
+
+map_Ka Doorrfok0071_diff.png
+map_Kd Doorrfok0071_diff.png
+map_d Doorrfok0071_diff.png
+
+newmtl Doorrfok0021Mtl
+Material Color
+Ka 1 1 1
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078 
+
+d 1
+
+Ns 0
+
+map_Ka Doorrfok0021_diff.png
+map_Kd Doorrfok0021_diff.png
+map_d Doorrfok0021_diff.png
+
+newmtl Doorrfok0041Mtl
+Material Color
+Ka 1 1 1
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078 
+
+d 1
+
+Ns 0
+
+map_Ka Doorrfok0041_diff.png
+map_Kd Doorrfok0041_diff.png
+map_d Doorrfok0041_diff.png
+
+newmtl Doorrfok0031Mtl
+Material Color
+Ka 1 1 1
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078 
+
+d 1
+
+Ns 0
+
+map_Ka Doorrfok0031_diff.png
+map_Kd Doorrfok0031_diff.png
+map_d Doorrfok0031_diff.png
+
+newmtl Bumprearok0041Mtl
+Material Color
+Ka 1 1 1
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078 
+
+d 1
+
+Ns 0
+
+map_Ka Bumprearok0041_diff.png
+map_Kd Bumprearok0041_diff.png
+map_d Bumprearok0041_diff.png
+
+newmtl Bootok0051Mtl
+Material Color
+Ka 1 1 1
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078 
+
+d 1
+
+Ns 0
+
+map_Ka Bootok0051_diff.png
+map_Kd Bootok0051_diff.png
+map_d Bootok0051_diff.png
+
+newmtl Bootok0061Mtl
+Material Color
+Ka 1 1 1
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078 
+
+d 1
+
+Ns 0
+
+map_Ka Bootok0061_diff.png
+map_Kd Bootok0061_diff.png
+map_d Bootok0061_diff.png
+
+newmtl Bumprearok1Mtl
+Material Color
+Ka 1 1 1
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078 
+
+d 1
+
+Ns 0
+
+map_Ka Bumprearok1_diff.png
+map_Kd Bumprearok1_diff.png
+map_d Bumprearok1_diff.png
+
+newmtl Bumpfrontok0071Mtl
+Material Color
+Ka 1 1 1
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078 
+
+d 1
+
+Ns 0
+
+map_Ka Bumpfrontok0071_diff.png
+map_Kd Bumpfrontok0071_diff.png
+map_d Bumpfrontok0071_diff.png
+
+newmtl Chassis0031Mtl
+Material Color
+Ka 1 1 1
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078 
+
+d 1
+
+Ns 0
+
+map_Ka Chassis0031_diff.png
+map_Kd Chassis0031_diff.png
+map_d Chassis0031_diff.png
+
+newmtl Interior0031Mtl
+Material Color
+Ka 1 1 1
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078 
+
+d 1
+
+Ns 0
+
+map_Ka Interior0031_diff.png
+map_Kd Interior0031_diff.png
+map_d Interior0031_diff.png
+
+newmtl Frontlight0041Mtl
+Material Color
+Ka 1 1 1
+Kd 1 1 1
+Ks 0.396078 0.396078 0.396078 
+
+d 1
+
+Ns 0
+
+map_Ka Frontlight0041_diff.png
+map_Kd Frontlight0041_diff.png
+map_d Frontlight0041_diff.png
+
+newmtl Tailight0031Mtl
+Material Color
+Ka 0.180144 0 0
+Kd 0.180144 0 0
+Ks 0.0713513 0 0 
+
+d 1
+
+Ns 0
+
+newmtl Tahook1Mtl
+Material Color
+Ka 0.991393 0.991393 0.991393
+Kd 0.991393 0.991393 0.991393
+Ks 0.392669 0.392669 0.392669 
+
+d 1
+
+Ns 0
+
+map_Ka Interior0031_diff.png
+map_Kd Interior0031_diff.png
+map_d Interior0031_diff.png
+

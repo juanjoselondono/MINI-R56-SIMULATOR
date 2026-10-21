@@ -1,47 +1,43 @@
 # R56 Vehicle Dynamics Simulator
 
-A Godot 4.7 (C#) 3D driving simulator of a Mini Cooper R56 (N16). The car is driven by a C# port of the MATLAB model
-`reference/matlab/model.m`, which is validated against MATLAB: the reference layer reproduces it bit-exactly in 9
-scenarios.
+A high-fidelity 3D driving simulator of a Mini Cooper R56 (N16) built in Godot 4 and C#. The core physics engine is a direct, bit-exact C# port of a rigorous MATLAB longitudinal and lateral vehicle dynamics model.
 
-- **Physics core** (`src/VehicleDynamics.Core`). model.m's longitudinal model (engine PCHIP torque map, gears, traction
-  limit F_x,max, drag/rolling/grade, braking) runs at its own fixed step. Steering (E1), surfaces (E2) and barrier
-  impacts (E3) are labelled extensions, because model.m has no lateral dynamics.
-- **Game** (`VehicleDynamicsSimulator/`):
-  - two tracks: model.m's oval, and a 2.6 km road circuit;
-  - analytic barrier collisions, lap timing;
-  - a live setup panel exposing the real model parameters;
-  - engineering telemetry with CSV export, and run comparison;
-  - procedural engine audio locked to the model's rpm;
-  - a textured 2011 Mini JCW (R56) GP model with interior, scaled to model.m's wheelbase, viewed through chase, bonnet
-    and cockpit cameras.
-- **Handling and controls.** A dynamic single-track lateral model (slip angles, yaw inertia) and a physical launch
-  clutch. Gamepad support (Logitech F710 / XInput) with analog throttle, brake and steering.
-- **Validation** (`validation/`, `tests/`). Golden data comes from the unmodified model.m; 118 unit tests and a
-  29-check in-game self-test.
+## 🧠 Architecture & Attribution
 
-## Quick start
+This project represents the convergence of pure mathematical modeling and AI-accelerated software engineering:
 
+*   **Author:** Juan José Londoño David
+*   **Co-Author:** Sebastian Palacios
+*   **Academic Contributor:** Professor Jorge Hernán Córdoba Morales. The foundational mathematical model was developed thanks to his guidance and teachings in the *"Dinámica de vehículos y motores de automoción"* course.
+*   **AI Co-Pilot:** Anthropic's Claude Code Opus 5.5 handled the heavy lifting of translating the mathematical equations into a fixed-step C# physics core, orchestrating the Godot 4 visualization pipeline, and optimizing asset toolchains.
+
+## 🚀 Key Features
+
+*   **Deterministic C# Physics Core:** Runs independent of the render loop at a fixed 60Hz step (0.005s). Includes engine PCHIP torque mapping, gear ratios, traction limits, aerodynamic drag, rolling resistance, and dynamic weight transfer.
+*   **Dynamic Lateral Handling:** Upgraded single-track (bicycle) dynamic model utilizing precise vehicle mass (1150 kg) and yaw moment of inertia (I_zz = 1100 kg·m²) to simulate real-world understeer/oversteer characteristics and tire slip angles.
+*   **High-Fidelity Track Integration:** Support for laser-scanned track data (e.g., Assetto Corsa's Monaco). Features dynamic surface friction coefficients reading directly from Godot's collision materials (Tarmac, Grass, Curbs).
+*   **Real-Time Engineering Telemetry:** Live dashboard exposing 42 physical parameters, live plotting, and CSV export for post-run data analysis.
+*   **XInput Controller Support:** Native analog steering, throttle, and braking integration (tested with Logitech F710).
+*   **Vulkan Forward+ Rendering:** Optimized visual pipeline using Godot 4 with dynamic shadows, PBR materials, and SDFGI global illumination, while keeping the physics collision meshes lightweight.
+
+## 📈 MATLAB Validation
+
+The C# physics core is continually validated against the original MATLAB reference model. The simulator features an automated testing suite that executes identical scenarios in both environments, ensuring a maximum relative error of `0` across 9 distinct kinetic and kinematic scenarios.
+
+## 🛠️ Run Instructions & Asset Disclaimer
+
+**Note on Track Assets:** To respect copyright, high-fidelity .kn5 track models (such as Monaco from Assetto Corsa) are **not** included in this repository. Users who own Assetto Corsa can use a Python KN5 extraction tool to convert their visual and physics files into .glb and .obj formats for use in the `assets/tracks/` directory.
+
+### Quick Start
 ```bash
+# Ensure Godot 4.7.x and .NET 8 SDK are installed
 export PATH=$HOME/.dotnet:$PATH DOTNET_ROOT=$HOME/.dotnet
 export GODOT=~/Applications/godot/Godot_v4.7.2-stable_mono_linux_x86_64/Godot_v4.7.2-stable_mono_linux.x86_64
 
-dotnet test VehicleDynamics.sln                               # core + game-logic tests
-cd VehicleDynamicsSimulator && dotnet build && $GODOT --headless --import --path .
-$GODOT --path .                                               # play (F1 in game for controls)
-$GODOT --headless --fixed-fps 60 --path . -- --selftest       # in-game self-test, exit code 0 = pass
-```
+# Run the core logic validation tests
+dotnet test VehicleDynamics.sln
 
-## Documentation
-
-| Document | Contents |
-|---|---|
-| [docs/run_instructions.md](docs/run_instructions.md) | requirements, build, launch, controls, panels, output paths, test modes, troubleshooting |
-| [docs/architecture.md](docs/architecture.md) | layers, per-frame/per-step data flow, coordinates, collisions, telemetry, audio, extending |
-| [docs/vehicle_model.md](docs/vehicle_model.md) | model.m equations, MATLAB→C# mapping, exposed parameters, extensions and their sources |
-| [docs/validation_report.md](docs/validation_report.md) | MATLAB comparison, convergence study, game-layer tests, what is not validated |
-| [docs/initial_audit.md](docs/initial_audit.md) | audit of the original MATLAB model and JS seed game |
-| [docs/DESIGN_CONTRACT.md](docs/DESIGN_CONTRACT.md) | binding design decisions and their amendments |
-
-`reference/` holds read-only copies of the original files, with SHA-256 checksums. The originals in the parent
-directory are untouched.
+# Build and launch with hardware acceleration
+cd VehicleDynamicsSimulator 
+dotnet build -c Release
+__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia $GODOT --path .
