@@ -2,7 +2,7 @@
 # - Visual only: removes any collision/physics node the importer could have produced.
 # - Assigns the generated StandardMaterial3D (<track>/materials/<name>.tres) to every surface by material name.
 # - Applies render hints encoded in node names: "__ns" = no shadow casting (transparent, foliage, fences, minor
-#   objects), "__vr<m>" = visibility range end in metres (minor objects disappear in the distance).
+#   objects), "__vr<m>" = visibility range end in metres, by object size (minor objects fade out in the distance).
 @tool
 extends EditorScenePostImport
 
@@ -35,7 +35,8 @@ func _process_mesh(node: Node3D) -> void:
 	var at := name.find("__vr")
 	if at >= 0:
 		node.visibility_range_end = float(name.substr(at + 4).get_slice("_", 0))
-		node.visibility_range_end_margin = 25.0
+		# Fade over the last 15 % of the range (dithered self-fade), so minor objects dissolve instead of popping.
+		node.visibility_range_end_margin = maxf(25.0, 0.15 * node.visibility_range_end)
 		node.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 		_stats.ranged += 1
 	var mesh = node.mesh

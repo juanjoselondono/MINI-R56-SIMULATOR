@@ -74,7 +74,11 @@ public partial class MeshTrack : Node3D
 
         BuildCollision();
         BuildStartFinishArea();
-        if (GetNodeOrNull<Node3D>("Visual") is { } visual) Bounds = ComputeBounds(visual);
+        if (GetNodeOrNull<Node3D>("Visual") is { } visual)
+        {
+            Bounds = ComputeBounds(visual);
+            KeepFoliageDetail(visual);
+        }
         _probe = new RayCast3D { Name = "GroundProbe", Enabled = false, CollisionMask = TarmacLayer | KerbLayer, HitBackFaces = true };
         AddChild(_probe);
     }
@@ -201,6 +205,29 @@ public partial class MeshTrack : Node3D
         area.AddChild(new CollisionShape3D { Shape = new BoxShape3D { Size = new Vector3(width, 4f, 1f) } });
         area.AreaEntered += _ => StartFinishEntered?.Invoke();
         AddChild(area);
+    }
+
+    /// <summary>LOD bias for alpha-tested surfaces (tree cards, fences, nets).</summary>
+    public const float FoliageLodBias = 8f;
+
+    /// <summary>
+    /// Godot's automatic mesh LOD simplifies by geometric error, which is fine for solid meshes but thins out
+    /// alpha-tested cards (AC tree batches, fences): leaves and mesh vanish at a distance and pop back in when the LOD
+    /// switches. Those instances get a high LOD bias, so they keep full detail far out. Solid meshes keep the global
+    /// threshold (viewport mesh_lod_threshold, per graphics preset).
+    /// </summary>
+    private static void KeepFoliageDetail(Node3D root)
+    {
+        foreach (var mi in root.FindChildren("*", nameof(MeshInstance3D), true, false).OfType<MeshInstance3D>())
+        {
+            if (mi.Mesh == null) continue;
+            for (int i = 0; i < mi.Mesh.GetSurfaceCount(); i++)
+                if (mi.Mesh.SurfaceGetMaterial(i) is BaseMaterial3D { Transparency: BaseMaterial3D.TransparencyEnum.AlphaScissor })
+                {
+                    mi.LodBias = FoliageLodBias;
+                    break;
+                }
+        }
     }
 
     private static Aabb ComputeBounds(Node3D root)

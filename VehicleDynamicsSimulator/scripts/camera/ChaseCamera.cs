@@ -80,7 +80,8 @@ public partial class ChaseCamera : Camera3D
     {
         double speed = _target is VehicleController vc && vc.Dynamics != null ? vc.Dynamics.Speed : 0;
         float x = Mathf.Clamp((float)(speed - BlurSpeedStart) / (BlurSpeedFull - BlurSpeedStart), 0, 1);
-        Blur.Strength = _suppressBlurFrames > 0 ? 0 : x * x * (3 - 2 * x);
+        bool blurOn = GraphicsSettings.MotionBlurEnabled && GraphicsSettings.MotionBlurSupported;
+        Blur.Strength = _suppressBlurFrames > 0 || !blurOn ? 0 : x * x * (3 - 2 * x);
         if (_suppressBlurFrames > 0) _suppressBlurFrames--;
         // Far DoF: chase camera focus on the car and the road ahead; from the bonnet/cockpit the eye is on the road.
         DofAttributes.DofBlurFarDistance = View == Mode.Chase ? 45f : 70f;

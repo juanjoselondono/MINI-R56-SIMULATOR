@@ -153,4 +153,9 @@ cycle_graphics={
 
 anti_aliasing/quality/msaa_3d=0
 anti_aliasing/quality/screen_space_aa=0
-anti_aliasing/quality/use_taa=true
+anti_aliasing/quality/use_taa=false
+scaling_3d/mode=2
+scaling_3d/scale=0.667
+textures/default_filters/anisotropic_filtering_level=4
+textures/default_filters/texture_mipmap_bias=-0.5
+mesh_lod/lod_change/threshold_pixels=0.5

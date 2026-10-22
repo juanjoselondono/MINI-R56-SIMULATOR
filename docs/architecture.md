@@ -213,13 +213,15 @@ through an `AudioStreamGenerator`.
 | SSR | WorldEnvironment | 48 steps (64 Ultra / 32 Performance), half resolution except Ultra. Godot has no per-material SSR switch: surfaces reflect according to metallic/roughness/clearcoat. |
 | Volumetric fog | WorldEnvironment | density 0.0025, anisotropy 0.6 (forward scattering of the sun), 250 m; the exponential depth fog stays for long-range haze |
 | Glow | WorldEnvironment | HDR threshold 1.15, intensity 0.45, bloom 0.03 (only highlights glow) |
-| Anti-aliasing / scaling | `GraphicsSettings` | Ultra: native + TAA (MSAA and FXAA off). High: FSR 2.2 Quality (1/1.5). Performance: FSR 2.2 Balanced (1/1.7). FSR 2.2 does its own temporal AA, so TAA is off with it. |
+| Anti-aliasing / scaling | `GraphicsSettings`, `project.godot` (FSR 2.2 at 0.667) | High (default): FSR 2.2 Quality (1/1.5). Performance: FSR 2.2 Balanced (1/1.7). Ultra: native + TAA. MSAA and FXAA are off; FSR 2.2 does its own temporal AA, so TAA is off with it. |
 | Car paint | `assets/vehicles/mini_jcw/materials/car_paint.tres`, assigned in `VehicleVisuals.TuneMaterials` in the model's colour | metallic 0.7, roughness 0.4, clearcoat 1.0, clearcoat roughness 0.04 |
 | Depth of field | `ChaseCamera.DofAttributes` (`CameraAttributesPractical`) | far blur only (the car and cockpit are never blurred): from 45 m, transition 120 m (chase), 70/160 m (bonnet/cockpit); amount 0.04 |
-| Motion blur | `MotionBlurEffect` (`CompositorEffect`) + `shaders/motion_blur.glsl`, on the camera's `Compositor` | Godot 4.7 has no built-in motion blur. A compute pass after the transparent pass blurs each pixel along its motion vector (the TAA/FSR2 buffer, `prev_uv − cur_uv`) × resolution × 0.5 (180° shutter), 12 taps, ≤ 28 px. Samples from surfaces that move much less on screen (the car under the chase camera) are down-weighted, so the car stays sharp. Faded in between 20 and 80 km/h of car speed; suppressed for 2 frames after camera cuts. |
+| Motion blur | `MotionBlurEffect` (`CompositorEffect`) + `shaders/motion_blur.glsl`, on the camera's `Compositor` | Godot 4.7 has no built-in motion blur. A compute pass after the transparent pass blurs each pixel along its motion vector (the TAA/FSR2 buffer, `prev_uv − cur_uv`) × resolution × 0.5 (180° shutter), 12 taps, ≤ 28 px. Samples from surfaces that move much less on screen (the car under the chase camera) are down-weighted, so the car stays sharp. Faded in between 20 and 80 km/h of car speed; suppressed for 2 frames after camera cuts. **Ultra only:** a compositor effect runs before Godot's upscaler, and FSR 2.2's temporal accumulation turned the blurred input into trails several times too long (validation_report §18), so the blur is off with FSR 2.2. |
+| Texture filtering | `project.godot` + per viewport (`GraphicsSettings`) | 16× anisotropic filtering, texture mip bias −0.5 (all presets); track and car materials use linear-mipmap-anisotropic filtering. AC DDS textures are BC1/BC3 with full mip chains and are loaded as is (no import step); the 15 re-encoded PNGs import as VRAM uncompressed with mipmaps. |
+| Mesh LOD / visibility | `GraphicsSettings`, `MeshTrack.KeepFoliageDetail`, converter + post-import | LOD threshold 0.25 / 0.5 / 1.0 px (Ultra / High / Performance; project default 0.5). Alpha-tested meshes (tree cards, fences) LOD bias 8. Minor objects (< 4 m) are merged in 50 m cells with a visibility end of 250 × radius (400–1200 m) and a 15 % dithered fade. Camera far 4000 m. |
 
-F6 cycles the presets; `-- --gfx=ultra|high|performance` picks one at start. The default is Ultra, from the measurements
-in validation_report §17.
+F6 cycles the presets; `-- --gfx=ultra|high|performance` picks one at start. The default is **High (FSR 2.2 Quality)**,
+which is the sharpest and fastest preset (validation_report §18); Ultra is the native + TAA preset with motion blur.
 
 ## 7. Threading and performance
 

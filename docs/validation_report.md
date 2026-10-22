@@ -683,3 +683,55 @@ Screenshots (Monaco at 39 and 93 km/h, Circuit at 141 km/h) show:
 - clear-coat highlights on the roof;
 - the near road and kerbs streaked along the direction of travel at speed, while the car stays sharp, with no halo
   around it.
+
+## 18. Pop-in, texture definition and FSR 2.2 (2026-10-22)
+
+**Pop-in, cause.** The camera's far plane was already 4000 m and was not the cause. Two things were:
+
+1. Minor objects (< 4 m) were merged per material in 200 m cells with a 350 m visibility end. Godot measures visibility
+   ranges from the instance's AABB centre (`RendererSceneCull`: `transformed_aabb.get_center()`). Objects lay up to
+   111 m from their group's centre, so they appeared at about 240 m. 39 of them are palm-tree meshes.
+2. Godot's automatic LODs simplify the alpha-tested tree cards and fences, which thins out or removes foliage at a
+   distance.
+
+**Pop-in, fix.**
+- Minor objects are merged in 50 m cells, with a visibility end of 250 × radius (400–1200 m) and a 15 % dithered fade.
+- 186 alpha-tested meshes get LOD bias 8.
+- The mesh LOD threshold is 0.5 px (0.25 px on Ultra).
+- The self-test checks this (`render distances (no pop-in)`): 120 ranged meshes, 400–993 m, all with the fade.
+
+**Textures, cause.** The main road material (`mon_track_a_01`, AC `ksMultilayer_fresnel_nm`) has 136 texels per metre
+(0.7 cm per texel). Resolution is not the limit: a pixel 10 m ahead covers about 1.1 cm. The AC DDS textures are
+BC1/BC3 with full mip chains and are loaded directly, so there is no import setting to change for them. Decompressing
+them would not add detail. The 15 textures re-encoded as PNG (incomplete DDS mip chains) had been imported without
+mipmaps; they now import as VRAM uncompressed with mipmaps.
+
+**Textures, measured sharpness.** The metric is the variance of the Laplacian of the road in identical frames (car at
+rest on the grid, motion blur off), relative to the previous default (native + TAA, 4× anisotropic):
+
+| Variant | Near (1–6 m) | Mid (10–25 m) | Far (30–80 m) |
+|---|---|---|---|
+| native + TAA, AF 4× (previous default) | 100 % | 100 % | 100 % |
+| native + TAA, AF 16× | 105 % | 106 % | 111 % |
+| FSR 2.2 Quality, AF 16× | 262 % | 193 % | 212 % |
+| FSR 2.2 Quality, AF 16×, mip bias −0.5 (**new default**) | 258 % | 210 % | 242 % |
+| FSR 2.2 Quality, AF 16×, mip bias −1.0 | 258 % | 215 % | 269 % (visible sparkle on the pavement, rejected) |
+
+Godot's TAA resolve is soft. FSR 2.2's reconstruction and sharpening resolve about twice the texture detail, so the
+"muddy" look came mostly from the previous default (native + TAA), not from the textures.
+
+**FSR 2.2 and motion blur.** With FSR 2.2, the motion-blur compositor effect produced trails of 100+ px at 38 km/h, and
+the whole background smeared at 93 km/h. Native + TAA at the same moments was correct. A compositor effect can only run
+before the upscaler, and FSR 2.2's temporal accumulation then kept and extended the blurred history. Motion blur is
+therefore disabled with FSR 2.2 and remains on Ultra (native + TAA).
+
+**Performance** (Monaco, about 1080p, vsync off, 3600 frames):
+
+| Preset | GPU | Frames over 16.7 ms | Objects / primitives per frame | Previous build |
+|---|---|---|---|---|
+| High: FSR 2.2 Quality (default) | 7.81 ms | 3 (0.1 %) | 1235 / 1.58 M | 7.79 ms, 1202 / 1.54 M |
+| Ultra: native + TAA | 11.85 ms | 5 (0.1 %) | 1145 / 1.59 M | 11.97 ms, 1113 / 1.50 M |
+| Performance: FSR 2.2 Balanced | 6.46 ms | 3 (0.1 %) | 1242 / 1.52 M | – |
+
+The longer draw distances and lower LOD threshold cost under 1 % of GPU time. VRAM in use: 635 MB (textures 497 MB) of
+6 GB. Tests: 140/140 + 11/11 unit tests, self-test 49/49.

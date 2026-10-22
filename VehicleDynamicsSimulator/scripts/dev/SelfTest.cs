@@ -338,6 +338,19 @@ public partial class SelfTest : Node
         Check("ground under the grid", g0.Hit && Math.Abs(g0.Height - mesh.SpawnHeight) < 1.0 && g0.SurfaceKey == "TARMAC" && Math.Abs(V.GlobalPosition.Y - g0.Height) < 1e-3,
             $"hit={g0.Hit}, h={F(g0.Height, "0.00")} m (AC grid {F(mesh.SpawnHeight, "0.00")} m), car body y={F(V.GlobalPosition.Y, "0.00")}, surface {g0.SurfaceKey}, μ factor {F(g0.Grip)}");
 
+        // Rendering distances (pop-in): visibility ranges by size with a fade, full-detail foliage, far clip, filtering.
+        var meshes = mesh.FindChildren("*", nameof(MeshInstance3D), true, false).OfType<MeshInstance3D>().ToList();
+        var ranged = meshes.Where(m => m.VisibilityRangeEnd > 0).ToList();
+        int foliage = meshes.Count(m => m.LodBias >= MeshTrack.FoliageLodBias);
+        var cam = GetViewport().GetCamera3D();
+        var vp = GetViewport();
+        bool rangesOk = ranged.All(m => m.VisibilityRangeEnd >= 400 && m.VisibilityRangeEndMargin >= 0.15f * m.VisibilityRangeEnd - 1e-3f
+                                        && m.VisibilityRangeFadeMode == GeometryInstance3D.VisibilityRangeFadeModeEnum.Self);
+        Check("render distances (no pop-in)", rangesOk && foliage > 0 && cam != null && cam.Far >= 4000
+                && vp.AnisotropicFilteringLevel == Viewport.AnisotropicFiltering.Anisotropy16X && vp.MeshLodThreshold <= 0.5f,
+            $"{meshes.Count} visual meshes, {ranged.Count} size-ranged ({(ranged.Count > 0 ? ranged.Min(m => m.VisibilityRangeEnd) : 0):0}–{(ranged.Count > 0 ? ranged.Max(m => m.VisibilityRangeEnd) : 0):0} m, 15 % fade); " +
+            $"{foliage} alpha-tested meshes with LOD bias {MeshTrack.FoliageLodBias}; far {cam?.Far:0} m; AF {vp.AnisotropicFilteringLevel}, LOD threshold {vp.MeshLodThreshold} px, mip bias {vp.TextureMipmapBias}, scaling {vp.Scaling3DMode} {vp.Scaling3DScale:0.00}");
+
         // Kerbs: probe the edges of the track limits every 10 m (the racing line itself rarely puts the CG on one).
         int kerbHits = 0, probes = 0;
         var line = _sim.Track.Line;

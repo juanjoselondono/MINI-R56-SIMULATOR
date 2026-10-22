@@ -140,6 +140,7 @@ public partial class VehicleVisuals : Node3D
                 }
                 cache[name] = m;
             }
+            m.TextureFilter = BaseMaterial3D.TextureFilterEnum.LinearWithMipmapsAnisotropic;
             mi.SetSurfaceOverrideMaterial(i, m);
         }
     }

@@ -108,7 +108,7 @@ The car starts at rest on the start/finish line. The lap clock starts when the c
 | H | – | headlights |
 | L | A, D-pad up | racing line on/off: green = accelerate, yellow = coast/transition, red = heavy braking (reference lap for the current setup). The source is chosen in the setup panel (Tab): optimised minimum-curvature line (default), the track's reference line, or the best lap of a telemetry CSV. |
 | F5 | – | start / stop telemetry recording (the pad's X is now reverse) |
-| F6 | – | graphics preset: Ultra (native + TAA, default) → High (FSR 2.2 Quality) → Performance (FSR 2.2 Balanced) |
+| F6 | – | graphics preset: High (FSR 2.2 Quality, default, sharpest) → Performance (FSR 2.2 Balanced) → Ultra (native + TAA, with motion blur) |
 | Tab | – | vehicle setup panel |
 | F2 | – | telemetry dashboard |
 | F3 | – | run comparison |
@@ -183,7 +183,7 @@ $GODOT --path . -- --track=Circuit --demo
 # Screenshots at given simulated times, then quit (rendering run, not headless); --bonnet / --cockpit select the camera
 $GODOT --path . --resolution 1600x900 -- --track=Circuit --demo --shots=/tmp/shots --shot-times=14,52
 
-# Graphics preset at start: ultra (native + TAA, default), high (FSR 2.2 Quality), performance (FSR 2.2 Balanced)
+# Graphics preset at start: high (FSR 2.2 Quality, default), performance (FSR 2.2 Balanced), ultra (native + TAA, motion blur)
 $GODOT --path . -- --track=Monaco --gfx=high
 
 # Average frame time and physics cost over N frames (also GPU time and dropped 60 Hz frames;

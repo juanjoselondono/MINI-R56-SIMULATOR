@@ -30,8 +30,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from kn5 import Kn5  # noqa: E402
 
 CELL = 200.0                 # m, spatial merge cell
+SMALL_CELL = 50.0            # m, merge cell for minor objects: Godot measures visibility ranges from the node's AABB
+                             # centre, so a minor object must stay close to the centre of its merged group
 SMALL_RADIUS = 4.0           # m, meshes smaller than this are "minor" objects
-SMALL_VISIBILITY_END = 350   # m
+
+
+def small_visibility_end(radius):
+    """Visibility end [m] for minor objects, by size: ~250 radii (a 2 m object ends ~500 m away, about 4 px tall at
+    1080p, then fades), at least 400 m, at most 1200 m."""
+    return int(min(1200, max(400, 250 * radius)))
 NO_SHADOW_PATTERN = re.compile(r'tree|fence|net|grass|bush|crowd|people|flag|banner|cable|wire|leaf|plant|palm|shadow',
                                re.I)
 KERB_PATTERN = re.compile(r'curb|kerb', re.I)
@@ -101,7 +108,17 @@ def write_texture(tex_dir, tname, data):
     from PIL import Image
     fn = base + '.png'
     Image.open(BytesIO(data)).convert('RGBA').save(os.path.join(tex_dir, fn))
+    write_png_import(os.path.join(tex_dir, fn))
     return fn
+
+
+def write_png_import(path):
+    """Godot import settings for a re-encoded texture: VRAM uncompressed, full mip chain (these are the textures whose
+    DDS mip chain was incomplete). Godot fills in the remaining keys on import."""
+    with open(path + '.import', 'w') as f:
+        f.write('[remap]\n\nimporter="texture"\ntype="CompressedTexture2D"\n\n[params]\n\n'
+                'compress/mode=3\ncompress/high_quality=true\nmipmaps/generate=true\nmipmaps/limit=-1\n'
+                'process/fix_alpha_border=true\ndetect_3d/compress_to=0\n')
 
 
 # --- materials --------------------------------------------------------------------------------------------------------
@@ -247,9 +264,10 @@ def convert_visual(k, out, name):
         centre, radius = (lo + hi) / 2, float(np.linalg.norm(hi - lo) / 2)
         mat = k.materials[mesh.material]
         small = radius < SMALL_RADIUS
+        size_cell = SMALL_CELL if small else CELL
         no_shadow = (not mesh.cast_shadows or mesh.transparent or mat.blend_mode == 1 or mat.shader == 'ksTree'
                      or bool(NO_SHADOW_PATTERN.search(mesh.name + ' ' + mat.name)) or small)
-        cell = (int(centre[0] // CELL), int(centre[2] // CELL))
+        cell = (int(centre[0] // size_cell), int(centre[2] // size_cell))
         groups[(mesh.material, cell, small, no_shadow)].append(mesh)
 
     stats = {'source_meshes': len(k.meshes), 'nodes': 0, 'triangles': 0, 'no_shadow_nodes': 0, 'small_nodes': 0}
@@ -267,7 +285,8 @@ def convert_visual(k, out, name):
             node += '__ns'
             stats['no_shadow_nodes'] += 1
         if small:
-            node += f'__vr{SMALL_VISIBILITY_END}'
+            radius = max(float(np.linalg.norm(m.positions.max(0) - m.positions.min(0)) / 2) for m in meshes)
+            node += f'__vr{small_visibility_end(radius)}'
             stats['small_nodes'] += 1
         glb.add(node, glb.material(sanitize(mat.name), alpha), pos, nrm, uv, idx)
         stats['nodes'] += 1
