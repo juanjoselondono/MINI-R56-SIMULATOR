@@ -38,6 +38,7 @@ func _init() -> void:
 		"toggle_headlights": [0.5, [key(KEY_H)]],
 		"toggle_racing_line": [0.5, [key(KEY_L), button(JOY_BUTTON_A), button(JOY_BUTTON_DPAD_UP)]],
 		"toggle_reverse": [0.5, [key(KEY_X), button(JOY_BUTTON_X)]],
+		"cycle_graphics": [0.5, [key(KEY_F6)]],
 		"recover_to_track": [0.5, [key(KEY_BACKSPACE), button(JOY_BUTTON_B)]],
 		"toggle_setup_panel": [0.5, [key(KEY_TAB)]],
 		"toggle_telemetry_panel": [0.5, [key(KEY_F2)]],

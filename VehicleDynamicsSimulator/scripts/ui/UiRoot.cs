@@ -85,6 +85,7 @@ public partial class UiRoot : CanvasLayer
             "L / A               racing line (green accelerate, yellow coast, red brake)",
             "X / X               reverse on/off (≤ 10 km/h; faster destroys the transmission)",
             "F5                  start / stop telemetry recording",
+            "F6                  graphics preset: Ultra (native + TAA) / High (FSR 2.2 Quality) / Performance",
             "Tab                 vehicle setup panel",
             "F2                  telemetry dashboard",
             "F3                  run comparison",

@@ -1,0 +1,16 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+; Automotive paint for the JCW body: metallic base coat under a glossy clear coat. Values follow the usual PBR
+; car-paint recipe (metallic flake base: metallic 0.7, roughness ~0.4; clear coat at full strength, near-mirror). The
+; base colour is replaced at runtime by the model's own paint colour (OBJ Kd). Reflections come from the scene's SSR
+; plus the sky/reflection probes; there is no per-material SSR switch in Godot 4.
+[resource]
+resource_name = "JCW body paint"
+albedo_color = Color(0.37, 0.37, 0.38, 1)
+metallic = 0.7
+metallic_specular = 0.5
+roughness = 0.4
+clearcoat_enabled = true
+clearcoat = 1.0
+clearcoat_roughness = 0.04
+texture_filter = 5

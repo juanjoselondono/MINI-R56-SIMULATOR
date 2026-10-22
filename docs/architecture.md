@@ -204,6 +204,23 @@ through an `AudioStreamGenerator`.
 | Wind | V | ∝ (V/50)² |
 | Impact | E3 impact severity | thump + noise ∝ severity |
 
+## 6b. Rendering (Forward+)
+
+| Feature | Where | Settings |
+|---|---|---|
+| Tonemap | `Main.tscn` WorldEnvironment | ACES, exposure 1.1, white 6 |
+| SSAO / SSIL | WorldEnvironment; quality per preset (`GraphicsSettings`) | SSAO radius 1.5, intensity 1.5 (high quality); SSIL radius 4, intensity 0.8 (high/medium, off in Performance) |
+| SSR | WorldEnvironment | 48 steps (64 Ultra / 32 Performance), half resolution except Ultra. Godot has no per-material SSR switch: surfaces reflect according to metallic/roughness/clearcoat. |
+| Volumetric fog | WorldEnvironment | density 0.0025, anisotropy 0.6 (forward scattering of the sun), 250 m; the exponential depth fog stays for long-range haze |
+| Glow | WorldEnvironment | HDR threshold 1.15, intensity 0.45, bloom 0.03 (only highlights glow) |
+| Anti-aliasing / scaling | `GraphicsSettings` | Ultra: native + TAA (MSAA and FXAA off). High: FSR 2.2 Quality (1/1.5). Performance: FSR 2.2 Balanced (1/1.7). FSR 2.2 does its own temporal AA, so TAA is off with it. |
+| Car paint | `assets/vehicles/mini_jcw/materials/car_paint.tres`, assigned in `VehicleVisuals.TuneMaterials` in the model's colour | metallic 0.7, roughness 0.4, clearcoat 1.0, clearcoat roughness 0.04 |
+| Depth of field | `ChaseCamera.DofAttributes` (`CameraAttributesPractical`) | far blur only (the car and cockpit are never blurred): from 45 m, transition 120 m (chase), 70/160 m (bonnet/cockpit); amount 0.04 |
+| Motion blur | `MotionBlurEffect` (`CompositorEffect`) + `shaders/motion_blur.glsl`, on the camera's `Compositor` | Godot 4.7 has no built-in motion blur. A compute pass after the transparent pass blurs each pixel along its motion vector (the TAA/FSR2 buffer, `prev_uv − cur_uv`) × resolution × 0.5 (180° shutter), 12 taps, ≤ 28 px. Samples from surfaces that move much less on screen (the car under the chase camera) are down-weighted, so the car stays sharp. Faded in between 20 and 80 km/h of car speed; suppressed for 2 frames after camera cuts. |
+
+F6 cycles the presets; `-- --gfx=ultra|high|performance` picks one at start. The default is Ultra, from the measurements
+in validation_report §17.
+
 ## 7. Threading and performance
 
 The simulator is single-threaded on purpose. The measurement below shows the physics needs no worker thread, and a
@@ -233,7 +250,9 @@ VehicleDynamicsSimulator/
 │   ├── audio/       EngineSynth (pure C#), EngineAudio
 │   ├── effects/     ImpactEffects
 │   ├── menu/        MainMenu
+│   ├── rendering/   GraphicsSettings (presets), MotionBlurEffect (compositor)
 │   └── dev/         SelfTest, CentrelineDriver, ScreenshotRig, PerfProbe
+├── shaders/ motion_blur.glsl (compute)
 ├── tools/   track_post_import.gd (GLB import script), write_input_map.gd
 └── assets/  vehicles/mini_jcw (body, 4 wheels, steering wheel, textures, meta JSON), materials (procedural shaders),
              tracks/monaco (monaco_visual.glb, monaco_physics.obj, monaco_track.json, textures/, materials/;

@@ -350,6 +350,7 @@ public partial class SimulationManager : Node
         if (Input.IsActionJustPressed(InputSetup.ResetVehicle)) RestartSimulation();
         if (Input.IsActionJustPressed(InputSetup.Recover)) RecoverToTrack();
         if (Input.IsActionJustPressed(InputSetup.ToggleRecording)) ToggleRecording();
+        if (Input.IsActionJustPressed(InputSetup.CycleGraphics) && Camera != null) Notify("Graphics: " + Camera.CycleGraphics());
         if (Input.IsActionJustPressed(InputSetup.ToggleRacingLine))
         {
             GameSession.RacingLineVisible = !GameSession.RacingLineVisible;

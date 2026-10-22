@@ -90,6 +90,8 @@ public partial class VehicleVisuals : Node3D
     /// Per-surface material overrides keyed by the source material names (the OBJ materials are plain diffuse).
     /// Duplicates are made so the imported resources stay untouched.
     /// </summary>
+    private const string CarPaintPath = "res://assets/vehicles/mini_jcw/materials/car_paint.tres";
+
     private void TuneMaterials(MeshInstance3D mi)
     {
         var cache = new Dictionary<string, StandardMaterial3D>();
@@ -102,10 +104,14 @@ public partial class VehicleVisuals : Node3D
                 m = (StandardMaterial3D)src.Duplicate();
                 switch (name)
                 {
-                    case "Doorrfok0011Mtl":           // body paint
-                        m.Metallic = 0.55f; m.Roughness = 0.3f;
-                        m.ClearcoatEnabled = true; m.Clearcoat = 0.8f; m.ClearcoatRoughness = 0.12f;
+                    case "Doorrfok0011Mtl":           // body paint: automotive clear-coat material, in the model's colour
+                    {
+                        var paint = (StandardMaterial3D)GD.Load<StandardMaterial3D>(CarPaintPath).Duplicate();
+                        paint.AlbedoColor = src.AlbedoColor;
+                        paint.AlbedoTexture = src.AlbedoTexture;
+                        m = paint;
                         break;
+                    }
                     case "Doorrfok0051Mtl":           // glass (translucent in the source: d = 0.25)
                         m.Roughness = 0.04f; m.Metallic = 0.1f; m.MetallicSpecular = 0.9f;
                         break;

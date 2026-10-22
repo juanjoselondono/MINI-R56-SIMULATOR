@@ -658,3 +658,28 @@ Monaco 11).
 The first Monaco attempt used the bare AC edges and hit the walls 17 times; a wall clearance of 0.25 m still gave 4
 impacts. The impact log showed the cause: walls standing inside the AC edges, plus the corners of the yawed body and the
 driver's tracking error (up to 0.8 m). The final corridor keeps the CG line ≥ 2.0 m from walls.
+
+## 17. Rendering performance (2026-10-21)
+
+Monaco, scripted driver, window 1854 × 1011 (the largest window on this display; about 1080p), RTX 3050 6 GB Laptop
+GPU, Vulkan Forward+, vsync off (`--perf=N --no-vsync`), all effects on (ACES, SSAO, SSIL, SSR, volumetric fog, glow,
+DoF, motion blur).
+
+| Preset | Frames | Average frame | GPU time | Frames over 16.7 ms | Worst frame |
+|---|---|---|---|---|---|
+| Ultra: native + TAA | 3600 | 12.29 ms (81.4 fps) | 12.14 ms | 10 (0.3 %) | 26.3 ms |
+| High: FSR 2.2 Quality | 3600 | 8.06 ms (124.1 fps) | 7.90 ms | 1 (0.0 %) | 17.2 ms |
+| Performance: FSR 2.2 Balanced | 900 | 6.59 ms (151.8 fps) | 6.41 ms | – | 13.3 ms |
+
+Native resolution with TAA holds 60 Hz on this GPU with about 4.4 ms of headroom on average. Only 0.3 % of frames miss
+the 16.7 ms deadline, so FSR 2.2 is not necessary and Ultra is the default. High (FSR 2.2 Quality) is the
+recommendation if stutter appears, for example on battery or with thermal throttling.
+
+The physics is unaffected: 140/140 + 11/11 unit tests and the 48/48 self-test pass. Headless runs have no rendering
+device, and the compositor effect skips itself there.
+
+Screenshots (Monaco at 39 and 93 km/h, Circuit at 141 km/h) show:
+- the far DoF on distant buildings;
+- clear-coat highlights on the roof;
+- the near road and kerbs streaked along the direction of travel at speed, while the car stays sharp, with no halo
+  around it.

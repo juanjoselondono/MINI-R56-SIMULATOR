@@ -1,4 +1,6 @@
 using Godot;
+using Simulator.Rendering;
+using Simulator.Simulation;
 using Simulator.Track;
 using Simulator.UI;
 using Simulator.Vehicle;
@@ -10,6 +12,8 @@ namespace Simulator.CameraRig;
 /// rigid; the JCW model has a full interior and translucent glass). C cycles chase → bonnet → cockpit.
 /// The chase camera is pulled in front of barriers with a ray query against the track's barrier collision body.
 /// Impact shake only offsets the view; it never touches the vehicle state.
+/// Rendering: a CameraAttributesPractical with a subtle far depth of field (per view: the chase camera keeps the car,
+/// 6.5 m away, and the road ahead sharp), and the motion-blur compositor effect, faded in with the car's speed.
 /// </summary>
 public partial class ChaseCamera : Camera3D
 {
@@ -29,10 +33,35 @@ public partial class ChaseCamera : Camera3D
     private float _shake;
     private readonly RandomNumberGenerator _rng = new() { Seed = 3 };
 
+    /// <summary>Motion blur fades in between these car speeds [m/s] (≈ 20 and 80 km/h).</summary>
+    [Export] public float BlurSpeedStart { get; set; } = 5.5f;
+    [Export] public float BlurSpeedFull { get; set; } = 22f;
+    public MotionBlurEffect Blur { get; } = new();
+    public CameraAttributesPractical DofAttributes { get; } = new()
+    {
+        DofBlurFarEnabled = true,
+        DofBlurNearEnabled = false,   // never blur the car, the cockpit or the bonnet
+        DofBlurAmount = 0.04f,        // very subtle
+    };
+    private int _suppressBlurFrames;
+    private Godot.Environment? _environment;
+
     public override void _Ready()
     {
         _target = GetNodeOrNull<Node3D>(TargetPath);
         if (_target != null) GlobalPosition = DesiredChasePosition();
+        Attributes = DofAttributes;
+        Compositor = new Compositor { CompositorEffects = new Godot.Collections.Array<CompositorEffect> { Blur } };
+        _environment = GetTree().Root.FindChild("WorldEnvironment", true, false) is WorldEnvironment we ? we.Environment : null;
+        GraphicsSettings.Apply(GraphicsSettings.FromCommandLine(), GetViewport(), _environment, Blur);
+    }
+
+    /// <summary>F6: next graphics preset.</summary>
+    public string CycleGraphics()
+    {
+        var next = GraphicsSettings.Next(GraphicsSettings.Current);
+        GraphicsSettings.Apply(next, GetViewport(), _environment, Blur);
+        return GraphicsSettings.Describe(next);
     }
 
     /// <summary>Adds view shake; intensity ~ impact severity / 10, decays in about half a second.</summary>
@@ -44,12 +73,29 @@ public partial class ChaseCamera : Camera3D
     public void Snap()
     {
         if (_target != null) GlobalPosition = DesiredChasePosition();
+        _suppressBlurFrames = 2;   // the cut produces one frame of huge motion vectors
+    }
+
+    private void UpdatePostProcessing()
+    {
+        double speed = _target is VehicleController vc && vc.Dynamics != null ? vc.Dynamics.Speed : 0;
+        float x = Mathf.Clamp((float)(speed - BlurSpeedStart) / (BlurSpeedFull - BlurSpeedStart), 0, 1);
+        Blur.Strength = _suppressBlurFrames > 0 ? 0 : x * x * (3 - 2 * x);
+        if (_suppressBlurFrames > 0) _suppressBlurFrames--;
+        // Far DoF: chase camera focus on the car and the road ahead; from the bonnet/cockpit the eye is on the road.
+        DofAttributes.DofBlurFarDistance = View == Mode.Chase ? 45f : 70f;
+        DofAttributes.DofBlurFarTransition = View == Mode.Chase ? 120f : 160f;
     }
 
     public override void _Process(double delta)
     {
         if (_target == null) return;
-        if (!UiFocus.IsTyping(GetViewport()) && Input.IsActionJustPressed(InputSetup.ToggleCamera)) View = (Mode)(((int)View + 1) % 3);
+        if (!UiFocus.IsTyping(GetViewport()) && Input.IsActionJustPressed(InputSetup.ToggleCamera))
+        {
+            View = (Mode)(((int)View + 1) % 3);
+            _suppressBlurFrames = 2;
+        }
+        UpdatePostProcessing();
 
         var t = _target.GlobalTransform;
         _shake = Mathf.Max(0, _shake - 2.5f * (float)delta);
