@@ -92,6 +92,15 @@ public partial class VehicleController : Node3D
     private bool _requestedReverse;
 
     private VehicleVisuals? _visuals;
+    /// <summary>Presentation data of the current vehicle profile (visuals, cameras, footprint).</summary>
+    public VehicleVisualProfile Visual { get; private set; } = null!;
+    public VehicleVisuals? VisualsNode => _visuals;
+    public Vector3 BonnetEye => Visual.BonnetEye;
+    public Vector3 CockpitEye => Visual.CockpitEye;
+    public float ChaseDistance => Visual.ChaseDistance;
+    public float ChaseHeight => Visual.ChaseHeight;
+    /// <summary>Raised after the vehicle profile (3D model, footprint, cameras) changed.</summary>
+    public event Action? VehicleChanged;
     private (double X, double Y, double Psi) _spawn;
     private bool _spawnSet;
     private bool _wasBlown;
@@ -103,6 +112,9 @@ public partial class VehicleController : Node3D
         if (!_spawnSet) _spawn = VehicleModelAdapter.FromGodotTransform(GlobalTransform);
         _visuals = GetNodeOrNull<VehicleVisuals>("Visuals");
         if (_visuals != null) _visuals.WheelRadius = Parameters.WheelRadius;
+        Visual = VehicleCatalog.Get(Parameters.Profile);
+        if (_visuals == null || _visuals.SceneFilePath != Visual.VisualScene) LoadVisuals();
+        else ConfigureTrigger();
 
         // `-- --autodrive=<seconds>`: full throttle with auto-shift, prints the state and quits (smoke test).
         var arg = OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--autodrive"));
@@ -178,10 +190,46 @@ public partial class VehicleController : Node3D
     {
         p.EnsureValid();
         bool dtChanged = p.Dt != Parameters.Dt;
+        bool profileChanged = p.Profile != Parameters.Profile;
         Parameters = p.Clone();
+        if (profileChanged)
+        {
+            // Another car: new 3D model and footprint, and a fresh state at the spawn (gear count and inertias differ).
+            Visual = VehicleCatalog.Get(Parameters.Profile);
+            LoadVisuals();
+            ResetVehicle();
+            VehicleChanged?.Invoke();
+            return;
+        }
         Dynamics.SetParameters(Parameters);
         if (dtChanged) CreateLoop(Loop.Clock.Paused);
         if (_visuals != null) _visuals.WheelRadius = Parameters.WheelRadius;
+    }
+
+    /// <summary>Replaces the Visuals child with the current profile's scene.</summary>
+    private void LoadVisuals()
+    {
+        if (GetNodeOrNull<Node>("Visuals") is { } old)
+        {
+            RemoveChild(old);
+            old.QueueFree();
+        }
+        _visuals = GD.Load<PackedScene>(Visual.VisualScene).Instantiate<VehicleVisuals>();
+        _visuals.Name = "Visuals";
+        _visuals.WheelRadius = Parameters.WheelRadius;
+        AddChild(_visuals);
+        MoveChild(_visuals, 0);
+        if (!Visual.HasHeadlights) HeadlightsOn = false;
+        ConfigureTrigger();
+    }
+
+    /// <summary>The trigger volume (start/finish Area3D) matches the car's footprint.</summary>
+    private void ConfigureTrigger()
+    {
+        if (GetNodeOrNull<CollisionShape3D>("TriggerVolume/Shape") is not { } shape) return;
+        float h = Mathf.Max(0.8f, Visual.BodyHeight);
+        shape.Shape = new BoxShape3D { Size = new Vector3(2 * (float)Visual.HalfWidth, h, 2 * (float)Visual.HalfLength) };
+        shape.Position = new Vector3(0, h / 2, (float)Visual.CentreBehindCg);
     }
 
     public void SetPaused(bool paused) => Loop.Clock.Paused = paused;
@@ -202,7 +250,7 @@ public partial class VehicleController : Node3D
         {
             if (Input.IsActionJustPressed(InputSetup.Pause)) SetPaused(!Paused);
             if (Input.IsActionJustPressed(InputSetup.ToggleAutoShift)) AutoShift = !AutoShift;
-            if (Input.IsActionJustPressed(InputSetup.ToggleHeadlights)) HeadlightsOn = !HeadlightsOn;
+            if (Input.IsActionJustPressed(InputSetup.ToggleHeadlights) && Visual.HasHeadlights) HeadlightsOn = !HeadlightsOn;
         }
 
         double throttle = 0, brake = 0, steer = 0;

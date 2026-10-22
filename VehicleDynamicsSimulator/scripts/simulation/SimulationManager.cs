@@ -18,8 +18,10 @@ namespace Simulator.Simulation;
 public static class GameSession
 {
     public static string TrackName { get; set; } = "Circuit";
-    /// <summary>Optional configuration JSON (absolute path) to load at start.</summary>
+    /// <summary>Optional configuration JSON (absolute path) to load at start; its vehicle profile wins.</summary>
     public static string? ConfigPath { get; set; }
+    /// <summary>Vehicle profile to drive (VehicleProfiles id), chosen in the main menu or the setup panel.</summary>
+    public static string VehicleProfile { get; set; } = VehicleDynamics.Core.Simulation.VehicleProfiles.MiniR56;
     /// <summary>Racing-line driver aid shown (L / A / D-pad up); kept across tracks and restarts.</summary>
     public static bool RacingLineVisible { get; set; } = true;
     /// <summary>Where the racing line comes from (setup panel, or -- --racing-line=optimised|reference|&lt;csv&gt;).</summary>
@@ -78,11 +80,21 @@ public partial class SimulationManager : Node
         Camera = GetNodeOrNull<ChaseCamera>(CameraPath);
         AddToGroup("simulation_manager");
 
+        if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--vehicle=")) is { } vArg)
+            GameSession.VehicleProfile = vArg["--vehicle=".Length..];
+        bool configured = false;
         if (GameSession.ConfigPath is { } cfg)
         {
-            if (ConfigSerializer.TryLoad(cfg, out var p, out var err)) Vehicle.ApplyParameters(p!);
+            if (ConfigSerializer.TryLoad(cfg, out var p, out var err))
+            {
+                Vehicle.ApplyParameters(p!);
+                GameSession.VehicleProfile = p!.Profile;
+                configured = true;
+            }
             else Notify($"Configuration not loaded: {err}");
         }
+        if (!configured) Vehicle.ApplyParameters(VehicleProfiles.Create(GameSession.VehicleProfile));
+        Vehicle.VehicleChanged += OnVehicleChanged;
         var trackArg = OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--track="));
         if (trackArg != null) GameSession.TrackName = trackArg["--track=".Length..];
         if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--racing-line=")) is { } rlArg)
@@ -117,6 +129,7 @@ public partial class SimulationManager : Node
             ? new CollisionManager(meshTrack.WallContact)
             : new CollisionManager(Track.Geometry!);
         Collisions.Impact += OnImpact;
+        ConfigureCollisions();
         Laps = new LapTimer(Track.Line);
         Laps.LapCompleted += lap =>
         {
@@ -230,13 +243,15 @@ public partial class SimulationManager : Node
             info = Track.Mesh != null ? "Assetto Corsa AI line" : "track centreline";
             return Track.Line;
         }
-        // Margin from the limits to the CG line: half the body width (0.84 m) plus 0.36 m of clearance.
-        if (!OptimisedCache.TryGetValue(Track.TrackName, out var line))
+        // Margin from the limits to the CG line: half the car's width plus 0.36 m of clearance (Mini 1.20 m, F1 1.36 m).
+        double margin = Vehicle.Visual.HalfWidth + 0.36;
+        string key = FormattableString.Invariant($"{Track.TrackName}|{margin:F2}");
+        if (!OptimisedCache.TryGetValue(key, out var line))
         {
             // Mesh tracks: optimise inside the wall-bounded corridor, not the bare AC edges.
             ITrackLine corridor = Track.Mesh?.WallBoundedCorridor() ?? Track.Line;
-            line = RacingLineOptimizer.MinimumCurvature(corridor, margin: 1.2).Line;
-            OptimisedCache[Track.TrackName] = line;
+            line = RacingLineOptimizer.MinimumCurvature(corridor, margin: margin).Line;
+            OptimisedCache[key] = line;
         }
         info = "minimum-curvature line";
         return line;
@@ -309,8 +324,40 @@ public partial class SimulationManager : Node
     }
 
     /// <summary>Applies parameters between steps. A dt change restarts the recording so each CSV has one sample interval.</summary>
+    /// <summary>Drive another vehicle profile: its default parameters, 3D model and footprint; back to the grid.</summary>
+    public void SwitchVehicle(string profileId)
+    {
+        if (profileId == Vehicle.Parameters.Profile) return;
+        ApplyParameters(VehicleProfiles.Create(profileId));
+    }
+
+    /// <summary>Collision footprint of the current car (asset-pipeline AABB).</summary>
+    private void ConfigureCollisions()
+    {
+        Collisions.HalfLength = Vehicle.Visual.HalfLength;
+        Collisions.HalfWidth = Vehicle.Visual.HalfWidth;
+        Collisions.CentreBehindCg = Vehicle.Visual.CentreBehindCg;
+    }
+
+    private void OnVehicleChanged()
+    {
+        GameSession.VehicleProfile = Vehicle.Parameters.Profile;
+        ConfigureCollisions();
+        Telemetry.AddEvent("vehicle:" + Vehicle.Parameters.Profile);
+    }
+
     public void ApplyParameters(VehicleParameters p)
     {
+        if (p.Profile != Vehicle.Parameters.Profile)
+        {
+            // Another car: stop a recording (its metadata describes one car), swap, rebuild the line, back to the grid.
+            if (Telemetry.Recording) Telemetry.Stop(Vehicle);
+            Vehicle.ApplyParameters(p);
+            BuildRacingLine();
+            RestartSimulation();
+            Notify("Vehicle: " + VehicleProfiles.DisplayName(p.Profile));
+            return;
+        }
         bool dtChanged = p.Dt != Vehicle.Parameters.Dt;
         bool wasRecording = Telemetry.Recording;
         if (dtChanged && wasRecording) Telemetry.Stop(Vehicle);

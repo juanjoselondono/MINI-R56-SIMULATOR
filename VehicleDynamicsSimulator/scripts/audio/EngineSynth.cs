@@ -46,7 +46,10 @@ public sealed class EngineSynth
         _rpmS = 1000;
     }
 
-    public static double FundamentalHz(double rpm) => rpm / 60.0 * 2.0;
+    /// <summary>Firing events per crank revolution: 2 for an inline-4 four-stroke, 3 for a V6 (set per vehicle profile).</summary>
+    public double FiringsPerRevolution { get; set; } = 2.0;
+
+    public static double FundamentalHz(double rpm, double firingsPerRevolution = 2.0) => rpm / 60.0 * firingsPerRevolution;
 
     public void TriggerShift() => _shiftDip = 1.0;
     public void TriggerImpact(double severityMps) => _impactAmp = Math.Max(_impactAmp, Math.Clamp(severityMps / 12.0, 0.15, 1.2));
@@ -70,7 +73,7 @@ public sealed class EngineSynth
             _scrubS += ((c.BrakingAtLimit && c.SpeedMps > 5 ? Math.Min(1, c.SpeedMps / 30) : 0) - _scrubS) * kSlow;
             _windS += (Math.Min(1.5, Math.Pow(c.SpeedMps / 50, 2)) - _windS) * kSlow;
 
-            double f0 = FundamentalHz(_rpmS);
+            double f0 = FundamentalHz(_rpmS, FiringsPerRevolution);
             _phase += f0 * dt;
             if (_phase >= 1) _phase -= Math.Floor(_phase);
             double ph = 2 * Math.PI * _phase;

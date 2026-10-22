@@ -59,6 +59,7 @@ public partial class EngineAudio : AudioStreamPlayer
         var s = d.State;
         var o = d.Outputs;
         if (s.Gear != _lastGear) { _synth.TriggerShift(); _lastGear = s.Gear; }
+        _synth.FiringsPerRevolution = _sim.Vehicle.Visual.FiringsPerRevolution;
         if (s.EngineBlown && !_wasBlown) _synth.TriggerExplosion();
         _wasBlown = s.EngineBlown;
 

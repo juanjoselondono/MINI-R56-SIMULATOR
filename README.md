@@ -41,3 +41,7 @@ dotnet test VehicleDynamics.sln
 cd VehicleDynamicsSimulator 
 dotnet build -c Release
 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia $GODOT --path .
+
+## 📦 Third-Party Assets
+
+*   **Formula 1 model:** ["Ferrari F1 2019"](https://sketchfab.com/3d-models/ferrari-f1-2019-1b050bffe4e749b586b4782ee7ff4fd0) by [valvetin](https://sketchfab.com/valvetin), licensed under [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/). Converted (split into body, wheels and steering wheel, rescaled, re-origined) by `tools/asset_pipeline/import_f1_glb.py`. The F1 physics profile is provisional (no MATLAB model for it).

@@ -4,17 +4,25 @@ using Godot;
 
 namespace Simulator.Vehicle;
 
+/// <summary>Which hand-tuned material overrides to apply (the Mini OBJ only has plain diffuse materials).</summary>
+public enum VehicleMaterialSet { None = 0, MiniJcw = 1 }
+
 /// <summary>
-/// Presentation only: reads values derived from the physics state and never writes back.
-/// Model: 2011 Mini JCW (R56) GP, converted by tools/asset_pipeline/import_jcw_obj.py (scaled so its wheelbase equals
-/// model.m's car.L; origin under the CG). Wheel spin angle = odometer / R_w (no wheel-slip model exists in model.m);
-/// front wheels show the model's clamped steer angle delta; the steering wheel turns about its measured column axis by
-/// delta x <see cref="SteeringWheelRatio"/>, a visual constant (model.m has no steering system). No suspension motion is
-/// drawn because model.m has no suspension dynamics. Missing meshes fall back to primitive placeholders.
+/// Presentation only: reads values derived from the physics state and never writes back. One scene per vehicle profile
+/// (scenes/vehicles/*Visuals.tscn, chosen by <see cref="VehicleCatalog"/>), each converted by the asset pipeline so its
+/// origin is on the ground under the CG and its axles sit where the profile's physics puts them:
+/// Mini JCW (tools/asset_pipeline/import_jcw_obj.py, wheelbase = model.m's car.L) and F1 2019
+/// (tools/asset_pipeline/import_f1_glb.py). Nodes are found by name anywhere below this node: Body, WheelFL/FR/RL/RR
+/// (hub) → first child (spin) → meshes, SteeringWheel. Wheel spin angle = odometer / R_w (no wheel-slip model);
+/// front wheels show the model's clamped steer angle; the steering wheel turns about its column axis (from the metadata)
+/// by delta × <see cref="SteeringWheelRatio"/>, a visual constant. No suspension motion is drawn. Missing meshes fall back
+/// to primitive placeholders.
 /// </summary>
 public partial class VehicleVisuals : Node3D
 {
-    private const string MetaPath = "res://assets/vehicles/mini_jcw/mini_jcw_meta.json";
+    /// <summary>Asset-pipeline metadata (hubs, footprint, steering axis, camera eyes).</summary>
+    [Export] public string MetaPath { get; set; } = "res://assets/vehicles/mini_jcw/mini_jcw_meta.json";
+    [Export] public VehicleMaterialSet MaterialSet { get; set; } = VehicleMaterialSet.None;
 
     public double WheelRadius { get; set; } = 0.3043;
     /// <summary>Steering-wheel angle / road-wheel angle. Visual only; not a model parameter.</summary>
@@ -32,48 +40,66 @@ public partial class VehicleVisuals : Node3D
     private GpuParticles3D? _smoke;
     private bool? _lastBraking, _lastHeadlights;
 
+    /// <summary>Number of wheel hubs found (4 when the model converted correctly).</summary>
+    public int WheelCount => _spin.Length;
+    public bool HasSteeringWheel => _steeringWheel != null;
+
+    private T? Find<T>(string name) where T : Node => FindChild(name, true, false) as T;
+
     public override void _Ready()
     {
-        var body = GetNode<MeshInstance3D>("Body");
-        if (body.Mesh == null)
+        var body = Find<MeshInstance3D>("Body");
+        if (body == null || body.Mesh == null)
         {
             GD.PushWarning("Vehicle body mesh missing; using placeholder box.");
+            body ??= new MeshInstance3D { Name = "Body" };
+            if (body.GetParent() == null) AddChild(body);
             body.Mesh = new BoxMesh { Size = new Vector3(1.68f, 1.3f, 3.76f) };
             body.Position = new Vector3(0, 0.75f, 0.26f);
         }
-        else
+        else if (MaterialSet == VehicleMaterialSet.MiniJcw)
         {
             TuneMaterials(body);
         }
 
         string[] wheels = { "WheelFL", "WheelFR", "WheelRL", "WheelRR" };
-        _spin = new Node3D[wheels.Length];
-        for (int i = 0; i < wheels.Length; i++)
+        var spins = new List<Node3D>();
+        foreach (var name in wheels)
         {
-            var hub = GetNode<Node3D>(wheels[i]);
-            _spin[i] = hub.GetNode<Node3D>("Spin");
-            var mesh = _spin[i].GetNode<MeshInstance3D>("Mesh");
-            if (mesh.Mesh == null)
+            if (Find<Node3D>(name) is not { } hub) continue;
+            var spin = hub.GetChildren().OfType<Node3D>().FirstOrDefault() ?? hub;
+            var meshes = spin.FindChildren("*", nameof(MeshInstance3D), true, false).OfType<MeshInstance3D>().ToList();
+            if (spin is MeshInstance3D own) meshes.Add(own);
+            if (meshes.All(m => m.Mesh == null))
             {
-                mesh.Mesh = new CylinderMesh { TopRadius = 0.3043f, BottomRadius = 0.3043f, Height = 0.205f };
-                mesh.RotationDegrees = new Vector3(0, 0, 90);
+                var placeholder = new MeshInstance3D
+                {
+                    Mesh = new CylinderMesh { TopRadius = 0.3043f, BottomRadius = 0.3043f, Height = 0.205f },
+                    RotationDegrees = new Vector3(0, 0, 90),
+                };
+                spin.AddChild(placeholder);
             }
-            else TuneMaterials(mesh);
+            else if (MaterialSet == VehicleMaterialSet.MiniJcw)
+                foreach (var m in meshes.Where(m => m.Mesh != null)) TuneMaterials(m);
+            spins.Add(spin);
         }
-        _steer = new[] { GetNode<Node3D>("WheelFL"), GetNode<Node3D>("WheelFR") };
+        _spin = spins.ToArray();
+        _steer = new[] { Find<Node3D>("WheelFL"), Find<Node3D>("WheelFR") }.Where(n => n != null).Cast<Node3D>().ToArray();
 
-        _steeringWheel = GetNodeOrNull<Node3D>("SteeringWheel");
+        _steeringWheel = Find<Node3D>("SteeringWheel");
         if (_steeringWheel != null)
         {
             _steeringRest = _steeringWheel.Basis;
-            if (_steeringWheel.GetNodeOrNull<MeshInstance3D>("Mesh") is { Mesh: not null } sw) TuneMaterials(sw);
+            if (MaterialSet == VehicleMaterialSet.MiniJcw)
+                foreach (var sw in _steeringWheel.FindChildren("*", nameof(MeshInstance3D), true, false).OfType<MeshInstance3D>())
+                    if (sw.Mesh != null) TuneMaterials(sw);
             ReadSteeringAxis();
         }
 
-        _brakeGlow = GetNodeOrNull<OmniLight3D>("BrakeGlow");
-        _headlights = new[] { GetNodeOrNull<SpotLight3D>("HeadlightL"), GetNodeOrNull<SpotLight3D>("HeadlightR") }
+        _brakeGlow = Find<OmniLight3D>("BrakeGlow");
+        _headlights = new[] { Find<SpotLight3D>("HeadlightL"), Find<SpotLight3D>("HeadlightR") }
             .Where(l => l != null).Cast<SpotLight3D>().ToArray();
-        _smoke = GetNodeOrNull<GpuParticles3D>("EngineSmoke");
+        _smoke = Find<GpuParticles3D>("EngineSmoke");
     }
 
     /// <summary>The steering column axis measured by the asset pipeline (fallback: the value above).</summary>

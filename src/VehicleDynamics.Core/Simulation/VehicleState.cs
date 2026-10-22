@@ -36,6 +36,11 @@ public struct VehicleState
     /// engine idles, brakes and tyres still work. Cleared only by a restart (new state).
     /// </summary>
     public bool TransmissionDamaged;
+    /// <summary>
+    /// Traction-control throttle cut [0, 0.95] (driver aid, see <see cref="VehicleParameters.TractionControl"/>); applied
+    /// throttle = driver throttle × (1 − cut). 0 = no cut, so a default state never limits the throttle.
+    /// </summary>
+    public double TcCut;
 
     /// <summary>Value of <see cref="Gear"/> for reverse (EXTENSION R1; model.m has no reverse gear).</summary>
     public const int ReverseGear = -1;

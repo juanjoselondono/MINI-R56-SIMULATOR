@@ -125,13 +125,19 @@ public sealed class VehicleDynamics
             }
         }
 
-        var o = Evaluate(s, u);
+        // Driver aid (not vehicle physics): traction control scales the driver's throttle by the cut found so far.
+        var ue = u;
+        if (_p.TractionControl) ue.Throttle = Math.Clamp(u.Throttle, 0, 1) * (1 - s.TcCut);
+        var o = Evaluate(s, ue);
+        o.ThrottleApplied = Math.Clamp(ue.Throttle, 0, 1);
         o.EngineBlownThisStep = blownNow;
         o.TransmissionDamagedThisStep = transmissionNow;
 
-        if (Integrator == Integrator.SemiImplicitEuler) IntegrateEuler(ref s, o, u, dt);
-        else if (Dynamic) Rk4Dynamic(ref s, u, dt);
-        else Rk4Kinematic(ref s, u, dt);
+        if (Integrator == Integrator.SemiImplicitEuler) IntegrateEuler(ref s, o, ue, dt);
+        else if (Dynamic) Rk4Dynamic(ref s, ue, dt);
+        else Rk4Kinematic(ref s, ue, dt);
+        if (_p.TractionControl) UpdateTractionControl(ref s, o, dt);
+        o.TractionControlCut = s.TcCut;
 
         IntegrateClutch(ref s, o, dt);
         s.Time += dt;
@@ -141,6 +147,31 @@ public sealed class VehicleDynamics
         State = s;
         Outputs = o;
     }
+
+    /// <summary>
+    /// Traction control (driver aid, game assist; not part of the vehicle model, and 2019 F1 cars have none). The driven
+    /// axle may use a share u of its friction circle in combination: F_drive ≤ √((u g)² − F_y²), with u = 0.97 in a
+    /// straight line falling to 0.85 once the lateral force reaches 40 % of the axle capacity. The reserve is what lets
+    /// the rear axle absorb a yaw disturbance under power (with a fixed 95 % target the F1 spun within 0.25 s of a small
+    /// perturbation at 140 km/h); in a straight line it is not needed, so the launch keeps nearly all the traction.
+    /// Above the limit the throttle cut grows at 12/s per unit of excess demand; below it the cut recovers at 2/s plus
+    /// 10/s per unit of spare capacity. A feedback loop rather than a direct inverse, because with the E5 launch clutch
+    /// slipping the drive force follows the engine speed, not the throttle.
+    /// </summary>
+    private void UpdateTractionControl(ref VehicleState s, in VehicleOutputs o, double dt)
+    {
+        bool rwd = _p.DriveLayout == DriveLayout.RearWheelDrive;
+        double g = rwd ? o.GripRear : o.GripFront, fy = Math.Abs(rwd ? o.FyRear : o.FyFront);
+        double usage = g > 0 ? Math.Max(0.85, 0.97 - 0.3 * fy / g) : 0.85;   // straight 0.97 … cornering 0.85
+        double capacity = Dynamic ? Math.Sqrt(Math.Max(0, Sq(usage * g) - Sq(fy))) : 0.97 * o.FxMax;
+        double demand = o.Branch == DriveBranch.Drive ? Math.Abs(o.FTractive) : 0;
+        double excess = capacity > 1e-6 ? demand / capacity - 1 : (demand > 0 ? 1 : -1);
+        s.TcCut = excess > 0
+            ? Math.Min(0.95, s.TcCut + 12 * dt * Math.Min(excess, 2))
+            : Math.Max(0, s.TcCut - dt * (2 + 10 * Math.Min(-excess, 1)));
+    }
+
+    private static double Sq(double x) => x * x;
 
     /// <summary>
     /// EXTENSION R1: reverse toggle. From a forward gear: reverse engages if v_x ≤ <see cref="VehicleParameters.ReverseEngageMaxSpeed"/>;
@@ -486,21 +517,24 @@ public sealed class VehicleDynamics
             : massFactorMass;
 
         double muEff = p.Mu * (u.SurfaceGrip > 0 ? u.SurfaceGrip : p.GripFactor(u.Surface));
-        o.FxMax = TractionLimit.FxMax(p, muEff, theta);
+        // A1: downforce from the longitudinal speed loads the tyres (traction limit, brakes, rolling, axle grip).
+        double downforce = Aerodynamics.Downforce(p, v);
+        o.Downforce = downforce;
+        o.FxMax = TractionLimit.FxMax(p, muEff, theta, downforce);
         double delta = Math.Clamp(u.SteerAngle, -p.MaxSteerAngle, p.MaxSteerAngle);
         o.SteerAngle = delta;
 
         o.FDrag = Resistance.Drag(p, v);
-        o.FRolling = Resistance.Rolling(p, Math.Abs(v), p.RollingFactor(u.Surface), theta);
+        o.FRolling = Resistance.Rolling(p, Math.Abs(v), p.RollingFactor(u.Surface), theta, downforce);
         o.FGrade = Resistance.Grade(p, theta);
         double fRes = o.FDrag + o.FRolling + o.FGrade;
-        double fBrakeMax = (p.BrakeMuFactor * muEff) * (p.Mass * p.G * cosT);
+        double fBrakeMax = (p.BrakeMuFactor * muEff) * (p.Mass * p.G * cosT + downforce);
         o.FEngineBrake = slipping || broken ? 0 : p.EngineBrakeTorque * tr / rw;
 
         if (p.LateralModel == LateralModel.Kinematic)
             EvaluateKinematic(ref o, s, p, v, throttle, brake, fRes, fBrakeMax, muEff, driveMass);
         else
-            EvaluateDynamic(ref o, s, p, v, throttle, brake, fBrakeMax, muEff, driveMass, cosT);
+            EvaluateDynamic(ref o, s, p, v, throttle, brake, fBrakeMax, muEff, driveMass, cosT, downforce);
         return o;
     }
 
@@ -559,7 +593,7 @@ public sealed class VehicleDynamics
             // Seed rule: locked-wheel friction + drag over the bare mass.
             o.Branch = DriveBranch.Blown;
             o.MassEquivalent = p.Mass;
-            o.Ax = -(p.Mass * p.G * muEff + o.FDrag) / p.Mass;
+            o.Ax = -(p.Mass * p.G * muEff + o.Downforce * muEff + o.FDrag) / p.Mass;
             o.FTractiveEff = 0;
             fxUsed = 0; fxCap = 1;
         }
@@ -615,7 +649,7 @@ public sealed class VehicleDynamics
     /// Dissipative forces (rolling, drag, brakes, engine braking) oppose the actual direction of v_x.
     /// </summary>
     private void EvaluateDynamic(ref VehicleOutputs o, in VehicleState s, VehicleParameters p, double v,
-        double throttle, double brake, double fBrakeMax, double muEff, double driveMass, double cosT)
+        double throttle, double brake, double fBrakeMax, double muEff, double driveMass, double cosT, double downforce)
     {
         double delta = o.SteerAngle;
         double L = p.Wheelbase, lr = p.CgToRear, lf = L - lr;
@@ -632,8 +666,13 @@ public sealed class VehicleDynamics
         double fRes = dir * (o.FDrag + o.FRolling) + o.FGrade;
 
         double transfer = m * s.AxPrev * p.CgHeight / L;
-        double fzF = Math.Clamp(w * lr / L - transfer, 0.05 * w, 0.95 * w);
-        double fzR = w - fzF;
+        double fzStaticF = Math.Clamp(w * lr / L - transfer, 0.05 * w, 0.95 * w);
+        // A1: downforce adds to the axle loads by the aero balance (it expands each axle's friction circle).
+        double aeroF = downforce * p.AeroBalanceFront;
+        double fzF = fzStaticF + aeroF;
+        double fzR = w - fzStaticF + (downforce - aeroF);
+        double load = w + downforce;
+        bool rwd = p.DriveLayout == DriveLayout.RearWheelDrive;
         o.FzFront = fzF;
         o.FzRear = fzR;
         double lateralTransfer = m * Math.Abs(s.AyPrev) * p.CgHeight;
@@ -647,10 +686,10 @@ public sealed class VehicleDynamics
         {
             o.Branch = DriveBranch.Blown;
             o.MassEquivalent = m;
-            o.Ax = -(dir * (m * p.G * muEff + o.FDrag)) / m;
+            o.Ax = -(dir * (m * p.G * muEff + downforce * muEff + o.FDrag)) / m;
             o.FTractiveEff = 0;
-            double locked = dir * m * p.G * muEff;
-            fxF = -locked * fzF / w;
+            double locked = dir * m * p.G * muEff + dir * downforce * muEff;
+            fxF = -locked * fzF / load;
             fxR = -locked - fxF;
         }
         else if (brake > p.BrakeInputThreshold)
@@ -660,7 +699,7 @@ public sealed class VehicleDynamics
             o.FBrake = fBrakeMax * brake;
             o.Ax = -(dir * o.FBrake + fRes) / o.MassEquivalent;
             o.FTractiveEff = 0;
-            fxF = -dir * o.FBrake * fzF / w;
+            fxF = -dir * o.FBrake * fzF / load;
             fxR = -dir * o.FBrake - fxF;
         }
         else if (throttle > p.ThrottleInputThreshold || !o.ClutchLocked)
@@ -672,7 +711,9 @@ public sealed class VehicleDynamics
             o.MassEquivalent = mass;
             o.Ax = sg * a;
             o.FTractiveEff = fEff;
-            fxF = sg * Math.Clamp(tyre, -gF, gF);
+            // Drive force on the driven axle's tyres (RWD: rear, so power can saturate the rear axle).
+            if (rwd) fxR = sg * Math.Clamp(tyre, -gR, gR);
+            else fxF = sg * Math.Clamp(tyre, -gF, gF);
             if (o.FTractive > 0) lonDemand = o.FxMax > 0 ? o.FTractive / o.FxMax : 10;
         }
         else
@@ -681,9 +722,12 @@ public sealed class VehicleDynamics
             o.MassEquivalent = driveMass;
             o.Ax = -(fRes + dir * o.FEngineBrake) / o.MassEquivalent;
             o.FTractiveEff = 0;
-            fxF = -dir * o.FEngineBrake;
+            if (rwd) fxR = -dir * o.FEngineBrake;
+            else fxF = -dir * o.FEngineBrake;
         }
 
+        o.FxFront = fxF;
+        o.FxRear = fxR;
         // Lateral tyre forces within what the longitudinal forces leave of each friction circle.
         double fyMaxF = Math.Sqrt(Math.Max(0, gF * gF - fxF * fxF));
         double fyMaxR = Math.Sqrt(Math.Max(0, gR * gR - fxR * fxR));
@@ -715,6 +759,8 @@ public sealed class VehicleDynamics
         o.Beta = v != 0 || vy != 0 ? Math.Atan2(vy, v) : 0;
         o.Fy = fyBody;
         o.FGrip = gF + gR;
+        o.GripFront = gF;
+        o.GripRear = gR;
         o.FyDemand = Math.Abs(linF) + Math.Abs(linR);
         double demandF = fyMaxF > 0 ? Math.Abs(linF) / fyMaxF : (linF != 0 ? 10 : 0);
         double demandR = fyMaxR > 0 ? Math.Abs(linR) / fyMaxR : (linR != 0 ? 10 : 0);

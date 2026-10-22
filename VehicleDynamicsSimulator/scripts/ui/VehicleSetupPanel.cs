@@ -17,7 +17,10 @@ public partial class VehicleSetupPanel : PanelContainer
 {
     private SimulationManager _sim = null!;
     private VehicleParameters _edit = new();
-    private readonly VehicleParameters _defaults = VehicleParameters.GameDefaults();
+    private VehicleParameters _defaults = VehicleParameters.GameDefaults();
+    private VBoxContainer _list = null!;
+    private OptionButton _vehicle = null!;
+    private string _rowsKey = "";
     private readonly List<(ParamEntry Entry, HSlider? Slider, SpinBox? Spin, CheckBox? Check)> _rows = new();
     private Label _status = null!;
     private Label _derived = null!;
@@ -41,10 +44,25 @@ public partial class VehicleSetupPanel : PanelContainer
         outer.AddChild(UiTheme.Label("VEHICLE SETUP", 18, UiTheme.Accent));
         outer.AddChild(UiTheme.Label("Edits apply on [Apply Setup]. Tags: model.m = original MATLAB model; JS seed = seed game rule; Ext. = extension, provisional value.", 11, UiTheme.Muted));
 
+        // Vehicle profile: swapping loads that car's default parameters and 3D model and restarts on the grid.
+        var vehicleRow = new HBoxContainer();
+        vehicleRow.AddChild(UiTheme.Label("Vehicle", 13, UiTheme.Accent));
+        _vehicle = new OptionButton { SizeFlagsHorizontal = SizeFlags.ExpandFill, FocusMode = FocusModeEnum.None };
+        foreach (var (id, displayName) in VehicleProfiles.All) _vehicle.AddItem(displayName);
+        _vehicle.ItemSelected += i =>
+        {
+            _sim.SwitchVehicle(VehicleProfiles.All[(int)i].Id);
+            _edit = _sim.Vehicle.Parameters.Clone();
+            SyncFromEdit();
+            _status.Text = "Vehicle: " + VehicleProfiles.DisplayName(_edit.Profile) + " (its default parameters; back on the grid).";
+        };
+        vehicleRow.AddChild(_vehicle);
+        outer.AddChild(vehicleRow);
+
         var buttons = new HFlowContainer();
         _apply = UiTheme.Button("Apply Setup", Apply);
         buttons.AddChild(_apply);
-        buttons.AddChild(UiTheme.Button("Reset Parameters", () => { _edit = VehicleParameters.GameDefaults(); SyncFromEdit(); }, "Back to the game defaults (model.m values, M = 1150 kg; not applied yet)"));
+        buttons.AddChild(UiTheme.Button("Reset Parameters", () => { _edit = VehicleProfiles.Create(_edit.Profile); SyncFromEdit(); }, "Back to this vehicle profile's defaults (Mini: model.m values, M = 1150 kg; not applied yet)"));
         buttons.AddChild(UiTheme.Button("Revert Edits", () => { _edit = _sim.Vehicle.Parameters.Clone(); SyncFromEdit(); }, "Discard edits not yet applied"));
         buttons.AddChild(UiTheme.Button("Reset Vehicle", () => _sim.RecoverToTrack(), "Recover to the track centreline at rest"));
         _pause = UiTheme.Button("Pause", () => _sim.Vehicle.SetPaused(!_sim.Vehicle.Paused));
@@ -107,22 +125,9 @@ public partial class VehicleSetupPanel : PanelContainer
         outer.AddChild(_derived);
 
         var scroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
-        var list = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        scroll.AddChild(list);
+        _list = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        scroll.AddChild(_list);
         outer.AddChild(scroll);
-
-        string? group = null;
-        foreach (var e in ParameterCatalog.Build())
-        {
-            if (e.Group != group)
-            {
-                group = e.Group;
-                var h = UiTheme.Label(group.ToUpperInvariant(), 13, UiTheme.Accent);
-                list.AddChild(new HSeparator());
-                list.AddChild(h);
-            }
-            list.AddChild(BuildRow(e));
-        }
 
         _edit = _sim.Vehicle.Parameters.Clone();
         SyncFromEdit();
@@ -187,8 +192,33 @@ public partial class VehicleSetupPanel : PanelContainer
 
     private static string Fmt(double v) => v.ToString("0.#####", CultureInfo.InvariantCulture);
 
+    /// <summary>Rows depend on the profile (gear count, torque nodes, defaults): rebuilt when the edited profile changes.</summary>
+    private void RebuildRowsIfNeeded()
+    {
+        string key = $"{_edit.Profile}|{_edit.GearRatios.Length}|{_edit.RpmRaw.Length}";
+        if (key == _rowsKey) return;
+        _rowsKey = key;
+        _defaults = VehicleProfiles.Create(_edit.Profile);
+        foreach (var c in _list.GetChildren()) { _list.RemoveChild(c); c.QueueFree(); }
+        _rows.Clear();
+        string? group = null;
+        foreach (var e in ParameterCatalog.Build(_edit))
+        {
+            if (e.Group != group)
+            {
+                group = e.Group;
+                _list.AddChild(new HSeparator());
+                _list.AddChild(UiTheme.Label(group.ToUpperInvariant(), 13, UiTheme.Accent));
+            }
+            _list.AddChild(BuildRow(e));
+        }
+        int index = VehicleProfiles.All.ToList().FindIndex(p => p.Id == _edit.Profile);
+        if (index >= 0 && _vehicle.Selected != index) _vehicle.Select(index);
+    }
+
     private void SyncFromEdit()
     {
+        RebuildRowsIfNeeded();
         _syncing = true;
         foreach (var (e, slider, spin, check) in _rows)
         {
@@ -236,7 +266,8 @@ public partial class VehicleSetupPanel : PanelContainer
         try
         {
             _sim.ApplyParameters(_edit.Clone());
-            Changed();
+            _edit = _sim.Vehicle.Parameters.Clone();
+            SyncFromEdit();
         }
         catch (ArgumentException ex)
         {

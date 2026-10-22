@@ -21,6 +21,10 @@ public struct VehicleOutputs
     public double FDrag;
     public double FRolling;
     public double FGrade;
+    /// <summary>A1: aerodynamic downforce ½ ρ v² C_l A [N] (0 without a lift coefficient).</summary>
+    public double Downforce;
+    /// <summary>E4: longitudinal tyre force per axle (body x) [N]; drive appears on the driven axle (FWD front, RWD rear).</summary>
+    public double FxFront, FxRear;
     public double FBrake;
     public double FEngineBrake;
     public double MassEquivalent;
@@ -45,6 +49,12 @@ public struct VehicleOutputs
     public bool EngineBlownThisStep;
     /// <summary>EXTENSION R1: the transmission was destroyed in this step.</summary>
     public bool TransmissionDamagedThisStep;
+    /// <summary>E4: friction capacity of each axle [N] (load-sensitive, includes downforce).</summary>
+    public double GripFront, GripRear;
+    /// <summary>Throttle actually applied this step (driver throttle after the traction-control cut).</summary>
+    public double ThrottleApplied;
+    /// <summary>Traction control cut in this step (0 = none).</summary>
+    public double TractionControlCut;
 
     // E4 dynamic single-track
     public double AlphaFront;

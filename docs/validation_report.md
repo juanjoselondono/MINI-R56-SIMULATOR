@@ -735,3 +735,34 @@ therefore disabled with FSR 2.2 and remains on Ultra (native + TAA).
 
 The longer draw distances and lower LOD threshold cost under 1 % of GPU time. VRAM in use: 635 MB (textures 497 MB) of
 6 GB. Tests: 140/140 + 11/11 unit tests, self-test 49/49.
+
+## 19. Vehicle profiles, F1, downforce, RWD (2026-10-22)
+
+The F1 profile is provisional. Nothing here validates it against measured data: these checks show that it is internally
+consistent and plausible. The Mini is unchanged. With FWD and C_l = 0 every formula is the previous one, the golden
+MATLAB tests pass unchanged, and the Mini profile equals the former game defaults key by key.
+
+Unit tests: `VehicleDynamics.Tests` **148/148** (8 new in `VehicleProfileTests`), `GameLogic.Tests` **11/11**.
+Self-test **52/52** (3 new F1 checks).
+
+| Check | Result |
+|---|---|
+| Profiles valid; Mini profile = former game defaults; class defaults still FWD with no aero | pass |
+| Downforce = ½ρv²C_l A; axle loads = weight split + aero balance; F_x,max, brakes and rolling grow with it | 50 m/s: 6891 N (0.95 W); axle grip 2.81 g vs 1.60 g without aero |
+| RWD traction limit = μ W_r / (1 − μh/L) (+ rear downforce share) | exact |
+| Drive force on the driven axle | F1: F_x,front = 0, F_x,rear > 0; Mini: the reverse |
+| F1 straight line (TC off) | 0–100 km/h 2.69 s, 0–200 km/h 4.78 s, 330 km/h after 60 s, 6.1 g braking at top speed; peak power 703 kW |
+| Traction control | power-on corner from 72 km/h: TC off spins (max \|v_y\| 24.1 m/s), TC on 0.4 m/s; launch 0–100 km/h 3.49 s with TC |
+| Circuit reference lap | F1 45.0 s; F1 without downforce 58.3 s; Mini 84.2 s |
+| In game: swap to F1 | F1 scene, 4 wheels and steering wheel found, footprint 5.60 × 2.00 m; visual axles vs physics: L 3.6391 / 3.6390 m, rear hub 1.638 m = c |
+| In game: F1 lap on its racing line (Circuit) | ≈ 59 s (58.94–59.14 s depending on the preceding suites; Mini 94.76 s), valid, 0 wall impacts, peak downforce 10.2 kN (1.40 W), front drive force 0 |
+| In game: swap back to the Mini | parameters identical to the Mini profile, Mini scene, footprint half width 0.841 m |
+
+**Found while testing.** Without traction control, the scripted F1 spun at the first bend after the start and settled into
+a stable full-throttle donut (v_x ≈ 0, v_y = −3.3 m/s, r = 1.67 rad/s). That is a consequence of about 700 kW through
+the rear friction circle with binary throttle, not a numerical problem. A 95 % traction-control target still spun at
+140 km/h: the trace showed the rear axle at 95 % combined use (8.5 kN drive, 4.0 kN lateral, 9.9 kN capacity) and the
+spin started within 0.25 s. This set the final 85–97 % rule (vehicle_model §26).
+
+**Performance** (Monaco, about 1080p, High preset): Mini 7.52 ms GPU, F1 7.44 ms GPU. VRAM is 0.64 GB with the Mini and
+1.58 GB with the F1 (its twelve 4K textures).

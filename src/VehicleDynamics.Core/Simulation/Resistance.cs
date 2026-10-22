@@ -7,10 +7,11 @@ public static class Resistance
 
     public static double Rolling(VehicleParameters p, double v, double rollingFactor = 1.0) => Rolling(p, v, rollingFactor, p.Theta);
 
-    public static double Rolling(VehicleParameters p, double v, double rollingFactor, double theta)
+    /// <param name="downforce">A1: aerodynamic load added to the weight [N] (tyre rolling loss grows with load); 0 = model.m.</param>
+    public static double Rolling(VehicleParameters p, double v, double rollingFactor, double theta, double downforce = 0)
     {
         double vMph = (v * 3.6) / 1.60934;
-        return (0.01 * (1 + (vMph / 100))) * rollingFactor * (p.Mass * p.G * Math.Cos(theta));
+        return (0.01 * (1 + (vMph / 100))) * rollingFactor * (p.Mass * p.G * Math.Cos(theta) + downforce);
     }
 
     public static double Grade(VehicleParameters p) => Grade(p, p.Theta);

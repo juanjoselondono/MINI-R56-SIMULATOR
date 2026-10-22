@@ -91,6 +91,14 @@ public partial class ChaseCamera : Camera3D
     public override void _Process(double delta)
     {
         if (_target == null) return;
+        if (_target is VehicleController { Visual: not null } car)
+        {
+            // Eyes and chase distance follow the current vehicle profile (Mini / F1).
+            BonnetEye = car.BonnetEye;
+            CockpitEye = car.CockpitEye;
+            Distance = car.ChaseDistance;
+            Height = car.ChaseHeight;
+        }
         if (!UiFocus.IsTyping(GetViewport()) && Input.IsActionJustPressed(InputSetup.ToggleCamera))
         {
             View = (Mode)(((int)View + 1) % 3);

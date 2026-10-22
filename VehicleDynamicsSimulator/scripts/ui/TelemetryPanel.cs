@@ -116,6 +116,7 @@ public partial class TelemetryPanel : PanelContainer
         V("a_x", "m/s²", "", () => F(d().Outputs.Ax, "0.00"));
         V("a_y", "m/s²", "[E4/E1]", () => F(d().Outputs.Ay, "0.00"));
         V("gear", "", "", () => RaceHud.GearLabel(d().State));
+        V("downforce", "N", "[A1]", () => F(d().Outputs.Downforce, "0"));
         V("engine speed", "rpm", "", () => F(d().State.EngineRpm, "0"));
         V("engine torque", "N·m", "", () => F(d().Outputs.EngineTorque, "0.0"));
         V("throttle", "–", "", () => F(_sim.Vehicle.LastInputs.Throttle, "0.00"));

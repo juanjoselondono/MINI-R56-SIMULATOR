@@ -1,0 +1,49 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/vehicle/VehicleVisuals.cs" id="1_vis"]
+[ext_resource type="PackedScene" path="res://assets/vehicles/f1/f1.glb" id="2_model"]
+
+[sub_resource type="ParticleProcessMaterial" id="Smoke_process"]
+direction = Vector3(0, 1, 0)
+spread = 25.0
+initial_velocity_min = 1.0
+initial_velocity_max = 2.5
+gravity = Vector3(0, 0.6, 0)
+scale_min = 0.6
+scale_max = 1.8
+color = Color(0.25, 0.25, 0.25, 0.7)
+
+[sub_resource type="StandardMaterial3D" id="Smoke_mat"]
+transparency = 1
+shading_mode = 0
+vertex_color_use_as_albedo = true
+billboard_mode = 3
+particles_anim_h_frames = 1
+particles_anim_v_frames = 1
+particles_anim_loop = false
+
+[sub_resource type="QuadMesh" id="Smoke_quad"]
+material = SubResource("Smoke_mat")
+size = Vector2(0.8, 0.8)
+
+[node name="Visuals" type="Node3D"]
+script = ExtResource("1_vis")
+MetaPath = "res://assets/vehicles/f1/f1_meta.json"
+SteeringWheelRatio = 8.0
+
+[node name="Model" parent="." instance=ExtResource("2_model")]
+
+[node name="BrakeGlow" type="OmniLight3D" parent="."]
+visible = false
+position = Vector3(0, 0.55, 2.45)
+light_color = Color(1, 0.08, 0.05, 1)
+light_energy = 1.0
+omni_range = 2.5
+
+[node name="EngineSmoke" type="GPUParticles3D" parent="."]
+position = Vector3(0, 0.85, 0.9)
+emitting = false
+amount = 48
+lifetime = 2.5
+process_material = SubResource("Smoke_process")
+draw_pass_1 = SubResource("Smoke_quad")

@@ -12,7 +12,8 @@ public readonly record struct ReferencePoint(double S, double V, double Throttle
 /// <summary>
 /// EXTENSION (driver aid, not in MATLAB): quasi-steady-state reference lap along a track line, the classic
 /// "speed profile" of lap-time simulation.
-///   1. Corner limit: v_c = √(f_lat μ g cos θ / |κ|) from the line curvature κ(s).
+///   1. Corner limit: v_c = √(f_lat μ g cos θ / |κ|) from the line curvature κ(s); with downforce (A1) the grip is
+///      μ (g cos θ + k v²), k = ½ ρ C_l A / M, so v_c² = f μ g cos θ / (|κ| − f μ k).
 ///   2. Forward pass: v_{i+1}² = v_i² + 2 a_drive(v_i) Δs, where a_drive is the core's own full-throttle longitudinal
 ///      acceleration (model.m engine map, gears by the §11 auto-shift rule, F_x,max, drag, rolling, grade) scaled by the
 ///      friction circle √(1 − (a_y / μg)²).
@@ -50,6 +51,7 @@ public static class ReferenceLap
         var kappa = new double[n];
         var theta = new double[n];
         var muG = new double[n];
+        double aeroK = Aerodynamics.SpecificCoefficient(p);   // 0 without downforce
         var vLim = new double[n];
         for (int i = 0; i < n; i++)
         {
@@ -62,13 +64,16 @@ public static class ReferenceLap
             kappa[i] = sum / (2 * m + 1);
             theta[i] = grade?.Invoke(s[i]) ?? 0;
             muG[i] = p.Mu * gripFactor * p.G * Math.Cos(p.Theta + theta[i]);
-            vLim[i] = kappa[i] > 1e-6 ? Math.Sqrt(lateralFraction * muG[i] / kappa[i]) : double.PositiveInfinity;
+            // A1: grip grows with downforce, μ (g cos θ + k v²): v_c² κ = f (μ g cos θ + μ k v²)
+            // → v_c² = f μ g cos θ / (κ − f μ k); no limit where the aero grip alone outgrows the curvature.
+            double denom = kappa[i] - lateralFraction * p.Mu * gripFactor * aeroK;
+            vLim[i] = kappa[i] > 1e-6 && denom > 1e-9 ? Math.Sqrt(lateralFraction * muG[i] / denom) : double.PositiveInfinity;
         }
 
         double Circle(int i, double v)
         {
             double ay = v * v * kappa[i];
-            double r = ay / muG[i];
+            double r = ay / (muG[i] + p.Mu * gripFactor * aeroK * v * v);
             return r >= 1 ? 0 : Math.Sqrt(1 - r * r);
         }
         // Straight-line acceleration of the core at speed v: pedal = +1 full throttle, 0 coast, −1 full brake.

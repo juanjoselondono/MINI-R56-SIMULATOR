@@ -30,9 +30,26 @@ public partial class MainMenu : Control
 
         var v = new VBoxContainer();
         v.AddThemeConstantOverride("separation", 14);
-        v.AddChild(UiTheme.Label("MINI COOPER R56 (N16)", 40, UiTheme.Accent));
-        v.AddChild(UiTheme.Label("Vehicle dynamics simulator — model.m longitudinal model, validated against MATLAB", 16, UiTheme.Muted));
+        v.AddChild(UiTheme.Label("VEHICLE DYNAMICS SIMULATOR", 40, UiTheme.Accent));
+        v.AddChild(UiTheme.Label("Mini Cooper R56: model.m longitudinal model, validated against MATLAB · F1: provisional profile with downforce", 16, UiTheme.Muted));
         v.AddChild(new HSeparator());
+
+        // Vehicle first: the track buttons start the session.
+        v.AddChild(UiTheme.Label("VEHICLE", 14, UiTheme.Accent));
+        var vehicles = new HBoxContainer();
+        vehicles.AddThemeConstantOverride("separation", 10);
+        var group = new ButtonGroup();
+        foreach (var (id, displayName) in VehicleProfiles.All)
+        {
+            var b = new Button
+            {
+                Text = displayName, ToggleMode = true, ButtonGroup = group, FocusMode = FocusModeEnum.None,
+                ButtonPressed = id == GameSession.VehicleProfile, CustomMinimumSize = new Vector2(305, 40),
+            };
+            b.Toggled += on => { if (on) { GameSession.VehicleProfile = id; Validate(); } };
+            vehicles.AddChild(b);
+        }
+        v.AddChild(vehicles);
 
         v.AddChild(UiTheme.Label("TRACK", 14, UiTheme.Accent));
         foreach (var name in Track.TrackManager.Available)
@@ -52,7 +69,7 @@ public partial class MainMenu : Control
 
         v.AddChild(UiTheme.Label("VEHICLE CONFIGURATION", 14, UiTheme.Accent));
         _config = new OptionButton { CustomMinimumSize = new Vector2(620, 36), FocusMode = FocusModeEnum.None };
-        _config.AddItem("model.m defaults");
+        _config.AddItem("Vehicle profile defaults");
         string dir = SimulationManager.ConfigsDirectory;
         if (Directory.Exists(dir))
             foreach (var f in Directory.GetFiles(dir, "*.json").OrderBy(f => f)) _config.AddItem(Path.GetFileName(f));
@@ -73,12 +90,21 @@ public partial class MainMenu : Control
     private void Validate()
     {
         GameSession.ConfigPath = null;
-        if (_config.Selected <= 0) { _info.Text = "Default parameters (identical to model.m)."; return; }
+        string vehicle = VehicleProfiles.DisplayName(GameSession.VehicleProfile);
+        if (_config.Selected <= 0)
+        {
+            _info.Text = GameSession.VehicleProfile == VehicleProfiles.MiniR56
+                ? "Mini: model.m parameters with the game's mass 1150 kg and μ 1.05."
+                : $"{vehicle}: provisional parameters (no MATLAB model for this car).";
+            return;
+        }
         string path = Path.Combine(SimulationManager.ConfigsDirectory, _config.GetItemText(_config.Selected));
-        if (ConfigSerializer.TryLoad(path, out _, out var err))
+        if (ConfigSerializer.TryLoad(path, out var cfg, out var err))
         {
             GameSession.ConfigPath = path;
-            _info.Text = "Will load " + path;
+            _info.Text = cfg!.Profile == GameSession.VehicleProfile
+                ? "Will load " + path
+                : $"Will load {path} — it is a {VehicleProfiles.DisplayName(cfg.Profile)} configuration, so that car is used.";
         }
         else _info.Text = "Invalid configuration: " + err;
     }

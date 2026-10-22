@@ -174,6 +174,17 @@ so the tunnel finds the road, not the roof above it. The grade along it feeds th
 the centreline at y = 0. Toggle: L / D-pad up (`GameSession.RacingLineVisible`). It is a single draw call, about 6.6k
 triangles on Monaco.
 
+### 4.3 Vehicles (profiles)
+
+| Layer | Implementation |
+|---|---|
+| Physics | `VehicleProfiles` / `VehicleParameters.Profile` (core): Mini R56 and the provisional F1 (vehicle_model §23–§26) |
+| 3D model | One scene per car, `scenes/vehicles/MiniJcwVisuals.tscn` and `F1Visuals.tscn`, with the generic `VehicleVisuals` script. Nodes are found by name: Body, WheelXX (hub) → spin node, SteeringWheel. Material tuning applies to the Mini only. |
+| Presentation data | `VehicleCatalog`: visuals scene, metadata, camera eyes (Mini: bonnet/cockpit; F1: T-cam/cockpit from `f1_meta.json`), chase distance, collision footprint from the asset AABB (Mini 3.76 × 1.68 m, F1 5.60 × 2.00 m), engine firings per revolution for the sound (inline-4: 2, V6: 3) |
+| Swap | `SimulationManager.SwitchVehicle(id)` → `ApplyParameters` with another profile → `VehicleController` replaces the Visuals child, resizes the trigger volume, rebuilds the model at rest. The manager then reconfigures the collision footprint, rebuilds the racing line (margin = half width + 0.36 m) and restarts on the grid. A recording in progress is stopped. |
+| UI | Main menu: vehicle buttons above the track list (`GameSession.VehicleProfile`; a saved configuration's profile wins). Setup panel: vehicle drop-down; rows rebuilt per profile (gear count, torque nodes, defaults). `-- --vehicle=f1_2019` on the command line. |
+| Assets | `tools/asset_pipeline/import_f1_glb.py`: GLB → `assets/vehicles/f1/f1.glb` + `f1_meta.json` (node transforms baked into Godot's frame, mirrored nodes' winding fixed, wheels and steering wheel separated by name and proximity, origin under the CG, scaled to the 2.000 m width, BLEND materials without alpha → OPAQUE, decals → MASK) |
+
 ## 5. Telemetry and configuration
 
 `TelemetryService` attaches a core `SimulationRecorder` to the loop:

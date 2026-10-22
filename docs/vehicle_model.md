@@ -380,6 +380,7 @@ but unused), aerodynamic lift and wind, banking, kerbs and off-road surfaces, co
 | E3b | Rigid-body wall impact with restitution, wall friction and yaw (E4 model), §19 | user request 2026-10-20 |
 | RL | Reference lap for the racing-line aid (quasi-steady speed profile), §20; racing-line geometry, §22 | user requests 2026-10-20/21; driver aid, not physics |
 | R1 | Reverse gear (3.143, Getrag G255 / GS6-55BG) and transmission damage, §21 | user request 2026-10-21 |
+| P / A1 / TC | Vehicle profiles, provisional F1, aerodynamic downforce, RWD traction limit, traction-control driver aid, §23–§26 | user request 2026-10-22 |
 | S1 | (Optional since 2026-10-20: `LaunchModel = SeedRule`.) Clutch-slip launch: gear 1, wheel rpm < 3500, throttle > 0.1 → rpm = max(wheel, 1000 + throttle·2500) | monaco.html l. 209–215 |
 | S2 | Torque clamp rpm < 1000 → T(1000) | monaco.html `getTorque` |
 | S3 | Fuel cut rpm ≥ 6500 → T = 0; limiter flag for HUD/audio | monaco.html `getTorque` + l. 218–223 (rpm remap dropped) |
@@ -693,3 +694,94 @@ A reweighted variant aiming at the peak curvature ($|\kappa|^{p-2}$ weights, $p 
 slower on both tracks and produced kinks.
 
 Lap timing and track-limit checks always use the track's own reference line.
+
+## 23. Vehicle profiles
+
+`VehicleProfiles` (core) holds the interchangeable parameter sets. `VehicleParameters.Profile` carries the id, so saved
+configurations and telemetry metadata record which car they belong to, and the game picks the 3D model from it.
+
+| Id | Profile | Basis |
+|---|---|---|
+| `mini_r56` | `VehicleParameters.MiniCooperR56()` (= `GameDefaults()`) | model.m with the game's M = 1150 kg and μ = 1.05; FWD, no downforce |
+| `f1_2019` | `VehicleParameters.F1Provisional()` | **provisional**: no MATLAB model exists for this car (values below) |
+
+The class defaults of `VehicleParameters` remain model.m's. With `DriveLayout = FrontWheelDrive` and
+`LiftCoefficient = 0`, every formula reduces exactly to the previous one, so the MATLAB validation is bit-identical.
+
+### Provisional F1 parameters
+
+Every value is an engineering estimate unless a regulation or a measurement is named.
+
+| Quantity | Value | Basis |
+|---|---|---|
+| Mass M | 743 kg | 2019 minimum mass including the driver (FIA) |
+| Drive | RWD | |
+| Wheelbase L, tracks | 3.639 m, 1.607 / 1.566 m | measured on the 3D model scaled to the 2.000 m maximum width (`f1_meta.json`) |
+| CG to rear axle c, CG height h | 0.45 L = 1.638 m, 0.28 m | 45 % front weight (2019 cars: about 44–46 %), estimate |
+| Tyre radius R_w | 0.330 m | 660 mm 2019 tyres (13″ rim + 305 mm × 54.1 % sidewall) |
+| μ | 1.6 | warm dry slicks, estimate |
+| C_d A, C_l A, aero balance | 0.75 × 1.5 = 1.13 m², 3.0 × 1.5 = 4.5 m², 42 % front | estimate (L/D = 4) |
+| Power unit | torque table 350–680 N·m over 4000–12500 rpm, 703 kW peak at about 11 000 rpm | ICE + MGU-K at the crank, estimate |
+| Gears, final drive, η | 8 gears 4.09 … 1.145, i_fd = 4.0 (1st ≈ 95 km/h, 8th ≈ 340 km/h at 12 500 rpm), 0.95 | estimate |
+| Rotating mass factors | (I_e (i_g i_fd/R_w)² + I_w/R_w²)/M with I_e = 0.08, I_w = 4.0 kg·m² | estimate, consistent with E5 |
+| Idle, fuel cut, money shift | 4000, 13 000, 15 500 rpm | estimate (2019 rev limit 15 000 rpm) |
+| Launch clutch (E5) | bite 9000 rpm, capacity 900 N·m, I_e 0.08 kg·m² | estimate |
+| Brakes | μ_b = 0.8 | model.m form μ_b μ (W + F_down); 0.8 instead of 0.9 because slick friction falls at the ~4× static tyre load at top speed. Gives about 6 g at 330 km/h (2019 cars: 5–6 g). |
+| I_zz | 1200 kg·m² | estimate (M × (1.27 m)²) |
+| C_αf / C_αr | 180 000 / 260 000 N/rad | estimate: about 2.1–2.3 × the Mini; rear stiffer for stability under power |
+| Tyre load sensitivity, front roll share | 0.10, 0.55 | estimate |
+| δ_max | 0.35 rad | the Monaco hairpin needs about atan(L/10 m) |
+| Reverse | 4.0 | estimate |
+| Traction control | on | driver aid, §26 |
+
+Resulting behaviour (unit tests):
+- 0–100 km/h in 2.69 s and 0–200 km/h in 4.78 s without traction control (with it: 3.49 s and 6.19 s);
+- 330 km/h after 60 s;
+- 6.1 g braking at top speed;
+- at 180 km/h: 6.9 kN of downforce (0.95 W) and 2.81 g of axle grip, against 1.60 g without aero;
+- Circuit reference lap 45.0 s (58.3 s without downforce; Mini 84.2 s).
+
+These are plausible for a 2019 car, but the profile has not been validated against any measured data.
+
+## 24. A1: aerodynamic downforce
+
+$F_{down} = \tfrac12 \rho v_x^2 C_l A$, where $v_x$ is the longitudinal speed and $A$ the frontal area. A share
+$b$ (aero balance) acts on the front axle and $1-b$ on the rear. It enters every normal-load term:
+
+| Term | Without aero (model.m) | With A1 |
+|---|---|---|
+| Axle loads (E4) | $F_{zf} = W c/L - \Delta$, $F_{zr} = W - F_{zf}$ | $F_{zf} + b F_{down}$, $F_{zr} + (1-b) F_{down}$, so each axle's friction circle $\mu_i F_{zi}$ grows with $v^2$ |
+| Traction limit $F_{x,max}$ | load of the driven axle | + its downforce share |
+| Brakes | $\mu_b \mu W$ | $\mu_b \mu (W + F_{down})$; the brake split follows the axle loads |
+| Rolling resistance | $f_r W$ | $f_r (W + F_{down})$ |
+| Locked wheels (blown engine) | $\mu W$ | $\mu (W + F_{down})$ |
+
+Tyre load sensitivity (E4) still uses the static nominal load $M g/4$. Heavily loaded tyres therefore use friction less
+efficiently, as real tyres do, which limits the gain from downforce. The reference lap (§20) and the scripted driver use
+the same grip law: $v_c^2 = f\mu g\cos\theta / (\kappa - f\mu k)$ with $k = \tfrac12\rho C_l A / M$.
+
+## 25. Rear-wheel drive
+
+- **Traction limit:** Gillespie's rear-drive form with independent suspension,
+  $F_{x,max} = \mu\,(W (L-c)/L + (1-b) F_{down}) / (1 - \mu h / L)$. Longitudinal load transfer raises the load on the
+  driven axle. model.m's solid-axle torque term (the $K_{\varphi}$ term of the FWD form) does not apply.
+- **E4 axle forces:** the drive force (and engine braking) acts on the rear tyres, within the rear friction circle. Power
+  therefore uses up rear lateral grip, which is power oversteer. `VehicleOutputs.FxFront`/`FxRear` show the split.
+
+## 26. Traction control (driver aid, not vehicle physics)
+
+`VehicleParameters.TractionControl` is off for the Mini and on by default for the F1. Real 2019 F1 cars have no
+traction control.
+
+Each step, the applied throttle is the driver's throttle × (1 − cut). The driven axle may use a share $u$ of its friction
+circle in combination: $F_{drive} \le \sqrt{(u\,g_{axle})^2 - F_y^2}$, with $u = 0.97$ going straight, falling to 0.85
+once $F_y$ reaches 40 % of the axle capacity. The cut grows at 12/s per unit of excess demand, and recovers at 2/s plus
+10/s per unit of spare capacity.
+
+Why it exists: without it, about 700 kW through the rear tyres uses up the whole rear friction circle. With any steering
+input from binary throttle (keyboard, scripted driver), the F1 spun at launch and then held a stable donut. A fixed 95 %
+target still spun within 0.25 s of a yaw disturbance at 140 km/h, which set the 85 % cornering limit.
+
+Measured: full throttle with 0.08 rad of lock from 72 km/h, 3 s — without TC max $|v_y|$ = 24.1 m/s (spin); with TC
+0.4 m/s and still accelerating. Its cost is in the standing start: 0–100 km/h in 3.49 s instead of 2.69 s, because it
+interacts with the E5 slipping clutch.

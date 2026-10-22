@@ -1,0 +1,107 @@
+[gd_scene load_steps=11 format=3]
+
+[ext_resource type="Script" path="res://scripts/vehicle/VehicleVisuals.cs" id="2_vis"]
+[ext_resource type="ArrayMesh" path="res://assets/vehicles/mini_jcw/body.obj" id="3_body"]
+[ext_resource type="ArrayMesh" path="res://assets/vehicles/mini_jcw/wheel_fl.obj" id="4_wfl"]
+[ext_resource type="ArrayMesh" path="res://assets/vehicles/mini_jcw/wheel_fr.obj" id="5_wfr"]
+[ext_resource type="ArrayMesh" path="res://assets/vehicles/mini_jcw/wheel_rl.obj" id="6_wrl"]
+[ext_resource type="ArrayMesh" path="res://assets/vehicles/mini_jcw/wheel_rr.obj" id="7_wrr"]
+[ext_resource type="ArrayMesh" path="res://assets/vehicles/mini_jcw/steering_wheel.obj" id="8_sw"]
+
+[sub_resource type="ParticleProcessMaterial" id="Smoke_process"]
+direction = Vector3(0, 1, 0)
+spread = 25.0
+initial_velocity_min = 1.0
+initial_velocity_max = 2.5
+gravity = Vector3(0, 0.6, 0)
+scale_min = 0.6
+scale_max = 1.8
+color = Color(0.25, 0.25, 0.25, 0.7)
+
+[sub_resource type="StandardMaterial3D" id="Smoke_mat"]
+transparency = 1
+shading_mode = 0
+vertex_color_use_as_albedo = true
+billboard_mode = 3
+particles_anim_h_frames = 1
+particles_anim_v_frames = 1
+particles_anim_loop = false
+
+[sub_resource type="QuadMesh" id="Smoke_quad"]
+material = SubResource("Smoke_mat")
+size = Vector2(0.8, 0.8)
+
+[node name="Visuals" type="Node3D"]
+script = ExtResource("2_vis")
+MetaPath = "res://assets/vehicles/mini_jcw/mini_jcw_meta.json"
+MaterialSet = 1
+
+[node name="Body" type="MeshInstance3D" parent="."]
+mesh = ExtResource("3_body")
+
+[node name="SteeringWheel" type="Node3D" parent="."]
+position = Vector3(-0.3525, 0.8317, 0.0577)
+
+[node name="Mesh" type="MeshInstance3D" parent="SteeringWheel"]
+mesh = ExtResource("8_sw")
+
+[node name="WheelFL" type="Node3D" parent="."]
+position = Vector3(-0.7165, 0.3032, -0.938)
+
+[node name="Spin" type="Node3D" parent="WheelFL"]
+
+[node name="Mesh" type="MeshInstance3D" parent="WheelFL/Spin"]
+mesh = ExtResource("4_wfl")
+
+[node name="WheelFR" type="Node3D" parent="."]
+position = Vector3(0.7165, 0.3032, -0.938)
+
+[node name="Spin" type="Node3D" parent="WheelFR"]
+
+[node name="Mesh" type="MeshInstance3D" parent="WheelFR/Spin"]
+mesh = ExtResource("5_wfr")
+
+[node name="WheelRL" type="Node3D" parent="."]
+position = Vector3(-0.7165, 0.3032, 1.529)
+
+[node name="Spin" type="Node3D" parent="WheelRL"]
+
+[node name="Mesh" type="MeshInstance3D" parent="WheelRL/Spin"]
+mesh = ExtResource("6_wrl")
+
+[node name="WheelRR" type="Node3D" parent="."]
+position = Vector3(0.7165, 0.3032, 1.529)
+
+[node name="Spin" type="Node3D" parent="WheelRR"]
+
+[node name="Mesh" type="MeshInstance3D" parent="WheelRR/Spin"]
+mesh = ExtResource("7_wrr")
+
+[node name="BrakeGlow" type="OmniLight3D" parent="."]
+visible = false
+position = Vector3(0, 0.75, 2.2)
+light_color = Color(1, 0.08, 0.05, 1)
+light_energy = 1.5
+omni_range = 3.0
+
+[node name="HeadlightL" type="SpotLight3D" parent="."]
+visible = false
+position = Vector3(-0.61, 0.671, -1.45)
+light_energy = 4.0
+spot_range = 60.0
+spot_angle = 28.0
+
+[node name="HeadlightR" type="SpotLight3D" parent="."]
+visible = false
+position = Vector3(0.61, 0.671, -1.45)
+light_energy = 4.0
+spot_range = 60.0
+spot_angle = 28.0
+
+[node name="EngineSmoke" type="GPUParticles3D" parent="."]
+position = Vector3(0, 0.95, -1.0)
+emitting = false
+amount = 48
+lifetime = 2.5
+process_material = SubResource("Smoke_process")
+draw_pass_1 = SubResource("Smoke_quad")

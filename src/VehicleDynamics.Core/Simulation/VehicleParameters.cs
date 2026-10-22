@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.Json.Serialization;
 using VehicleDynamics.Core.Reference;
 
@@ -12,6 +13,9 @@ public enum LateralModel { Kinematic, Dynamic }
 
 /// <summary>Standing-start model when <see cref="VehicleParameters.ClutchLaunch"/> is on.</summary>
 public enum LaunchModel { PhysicalClutch, SeedRule }
+
+/// <summary>Driven axle. model.m is front-wheel drive (its §6 traction limit is the FWD form).</summary>
+public enum DriveLayout { FrontWheelDrive, RearWheelDrive }
 
 /// <summary>
 /// Parameters of the interactive model. Group 1 = model.m inputs (defaults identical to model.m).
@@ -78,6 +82,26 @@ public sealed class VehicleParameters
     public double ReverseEngageMaxSpeed { get; set; } = 10 / 3.6;
     public double BrakeInputThreshold { get; set; } = 0.05;
     public double ThrottleInputThreshold { get; set; } = 0.01;
+
+    // ---- Vehicle profile and layout (VehicleProfiles) ----
+    /// <summary>Profile id this parameter set belongs to (<see cref="VehicleProfiles"/>); selects the 3D model in the game.</summary>
+    public string Profile { get; set; } = VehicleProfiles.MiniR56;
+    /// <summary>Driven axle. FWD = model.m. RWD uses the rear-axle traction limit and puts the drive force on the rear tyres.</summary>
+    public DriveLayout DriveLayout { get; set; } = DriveLayout.FrontWheelDrive;
+    /// <summary>
+    /// EXTENSION A1 (aerodynamic downforce): lift coefficient C_l referred to <see cref="FrontalArea"/>, so
+    /// F_down = ½ ρ v² C_l A with v the longitudinal speed. 0 = no downforce (model.m and the Mini).
+    /// </summary>
+    public double LiftCoefficient { get; set; } = 0;
+    /// <summary>A1: share of the downforce carried by the front axle (aero balance).</summary>
+    public double AeroBalanceFront { get; set; } = 0.4;
+    /// <summary>
+    /// Driver aid (game assist, not vehicle physics): traction control trims the throttle when the driven axle would use
+    /// more than 85–97 % of its friction circle (less while cornering; VehicleDynamics.UpdateTractionControl). Off for the Mini (model.m has none); on by
+    /// default for the provisional F1 profile, whose ~700 kW otherwise spins the rear tyres with any steering input on
+    /// a keyboard (real 2019 F1 cars have no TC: their drivers meter the throttle).
+    /// </summary>
+    public bool TractionControl { get; set; } = false;
 
     // ---- Group 3: extensions (provisional) ----
     /// <summary>E1: steering angle at full input [rad]. PROVISIONAL (seed used 0.06).</summary>
@@ -168,7 +192,57 @@ public sealed class VehicleParameters
     /// and the friction coefficient μ = 1.05 (performance road tyres, user request for more grip; model.m uses 0.90).
     /// Extensions and C1 keep their defaults.
     /// </summary>
-    public static VehicleParameters GameDefaults() => new() { Mass = 1150, Mu = 1.05 };
+    public static VehicleParameters GameDefaults() => MiniCooperR56();
+
+    /// <summary>Mini Cooper R56 profile (the game's starting point, see <see cref="GameDefaults"/>).</summary>
+    public static VehicleParameters MiniCooperR56() => new() { Mass = 1150, Mu = 1.05, Profile = VehicleProfiles.MiniR56 };
+
+    /// <summary>
+    /// PROVISIONAL Formula 1 profile (no MATLAB model exists for it): engineering approximations of a 2019 F1 car, every
+    /// value an estimate unless a regulation is cited. Geometry from the 3D model (assets/vehicles/f1/f1_meta.json,
+    /// scaled to the 2.000 m regulation width). Documented in docs/vehicle_model.md §23.
+    /// </summary>
+    public static VehicleParameters F1Provisional()
+    {
+        const double rw = 0.1651 + 0.305 * 0.541;     // 13" rim + 305 mm × 54.1 % sidewall = 0.330 m (660 mm tyre, 2019 rules)
+        const double engineInertia = 0.08;             // crank + MGU-K side [kg m²], estimate
+        const double wheelInertia = 4.0;               // four wheels + tyres + brakes [kg m²], estimate
+        const double mass = 743;                       // 2019 minimum mass incl. driver [kg]
+        double[] gears = { 4.09, 3.41, 2.84, 2.37, 1.975, 1.647, 1.373, 1.145 };
+        const double finalDrive = 4.0;
+        var p = new VehicleParameters
+        {
+            Profile = VehicleProfiles.F1,
+            DriveLayout = DriveLayout.RearWheelDrive,
+            Mass = mass,
+            Cd = 0.75, FrontalArea = 1.5,               // C_d A = 1.13 m²
+            LiftCoefficient = 3.0, AeroBalanceFront = 0.42,   // C_l A = 4.5 m² (L/D = 4), 42 % front
+            GearRatios = gears, FinalDrive = finalDrive, EtaT = 0.95,
+            TireWidth = 0.305, AspectRatio = 0.541, RimDiameterInch = 13,
+            Mu = 1.6,                                   // warm slicks, dry
+            Wheelbase = 3.639, CgToRear = 0.45 * 3.639, CgHeight = 0.28,     // 45 % front weight
+            TrackFront = 1.607, TrackRear = 1.566,
+            SpringFront = 200000, SpringRear = 180000, SpringSepFront = 1.2, SpringSepRear = 1.2,
+            // V6 turbo hybrid, ICE + MGU-K at the crank: ~700 kW peak around 10500–11000 rpm.
+            RpmRaw = new double[] { 4000, 5000, 6000, 7000, 8000, 9000, 10000, 10500, 11000, 11500, 12000, 12500 },
+            TorqueRaw = new double[] { 350, 450, 560, 640, 680, 680, 660, 637, 610, 581, 525, 458 },
+            // model.m's brake force μ_b μ (W + F_down) has no tyre load sensitivity; at top speed the downforce puts ~4× the
+            // static load on the tyres, where slick friction is lower: μ_b 0.8 keeps the peak at ~6 g (2019 cars: 5–6 g).
+            BrakeMuFactor = 0.8, BrakeMassFactor = 0.03,
+            IdleRpm = 4000, FuelCutRpm = 13000, MoneyShiftRpm = 15500,
+            ClutchTargetRpm = 9000, ClutchBiteRpm = 9000, ClutchCapacity = 900,
+            EngineInertia = engineInertia, EngineBrakeTorque = 120,
+            ReverseRatio = 4.0,
+            MaxSteerAngle = 0.35,
+            YawInertia = 1200,
+            CorneringStiffnessFront = 180000, CorneringStiffnessRear = 260000,
+            TyreLoadSensitivity = 0.10, FrontRollStiffnessShare = 0.55,
+            TractionControl = true,
+        };
+        // Rotating-mass factors from the same inertias: (I_e (i_g i_fd / R_w)² + I_w / R_w²) / M.
+        p.MassFactors = gears.Select(g => (engineInertia * Math.Pow(g * finalDrive / rw, 2) + wheelInertia / (rw * rw)) / mass).ToArray();
+        return p;
+    }
 
     [JsonIgnore]
     public double Theta => SlopeMode switch
@@ -305,6 +379,12 @@ public sealed class VehicleParameters
         R(nameof(CollisionWallFriction), CollisionWallFriction, 0, 1.5);
         R(nameof(CollisionMaxYawKick), CollisionMaxYawKick, 0, Math.PI);
         R(nameof(CollisionBounceThreshold), CollisionBounceThreshold, 0, 10);
+        if (!Enum.IsDefined(DriveLayout)) e.Add("DriveLayout invalid");
+        if (string.IsNullOrWhiteSpace(Profile)) e.Add("Profile must be set");
+        R(nameof(LiftCoefficient), LiftCoefficient, 0, 6);
+        R(nameof(AeroBalanceFront), AeroBalanceFront, 0, 1);
+        if (DriveLayout == DriveLayout.RearWheelDrive && Mu * CgHeight / Wheelbase >= 0.9)
+            e.Add("RWD traction limit needs μ h / L < 0.9");
         if (SurfaceGripFactor is null || SurfaceGripFactor.Length != 3) e.Add("SurfaceGripFactor must have 3 entries [asphalt, curb, grass]");
         else for (int i = 0; i < 3; i++) R($"SurfaceGripFactor[{i}]", SurfaceGripFactor[i], 0.05, 2);
         if (SurfaceRollingFactor is null || SurfaceRollingFactor.Length != 3) e.Add("SurfaceRollingFactor must have 3 entries [asphalt, curb, grass]");

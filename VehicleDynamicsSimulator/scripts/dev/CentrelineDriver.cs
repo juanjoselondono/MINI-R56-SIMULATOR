@@ -31,13 +31,16 @@ public sealed class CentrelineDriver
         double delta = Math.Atan(2 * p.Wheelbase * Math.Sin(alpha) / ld);
         double steer = Math.Clamp(delta / p.MaxSteerAngle, -1, 1);
 
-        double aLat = LateralMargin * p.GripUtilization * TractionLimit.FxMax(p, p.Mu) / p.Mass;
+        // Lateral capacity a(v) = A + B v²: F_x,max grows linearly with the downforce (A1; B = 0 without aero).
+        double aLat = LateralMargin * p.GripUtilization * TractionLimit.FxMax(p, p.Mu, p.Theta) / p.Mass;
+        double aAero = LateralMargin * p.GripUtilization
+                       * (TractionLimit.FxMax(p, p.Mu, p.Theta, Aerodynamics.Downforce(p, 1)) - TractionLimit.FxMax(p, p.Mu, p.Theta)) / p.Mass;
         double target = MaxSpeed;
         for (double d = 0; d <= 160; d += 4)
         {
             double k = Math.Abs(Track.Curvature(pr.S + d));
-            if (k < 1e-6) continue;
-            double vCorner = Math.Sqrt(aLat / k);
+            if (k < 1e-6 || k <= aAero) continue;
+            double vCorner = Math.Sqrt(aLat / (k - aAero));
             target = Math.Min(target, Math.Sqrt(vCorner * vCorner + 2 * PlannedDecel * d));
         }
 

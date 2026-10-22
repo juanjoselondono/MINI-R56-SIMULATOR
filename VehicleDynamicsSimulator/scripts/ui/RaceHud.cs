@@ -89,6 +89,8 @@ public partial class RaceHud : Control
         if (o.Understeer) Flag("UNDERSTEER — front axle saturated", UiTheme.Accent);
         if (o.Oversteer) Flag("OVERSTEER — rear axle saturated [E4]", UiTheme.Bad);
         if (!o.ClutchLocked && !s.EngineBlown && s.V > 0.05) Flag("CLUTCH SLIPPING [E5]", UiTheme.Muted);
+        if (o.TractionControlCut > 0.02) Flag(string.Create(CultureInfo.InvariantCulture, $"TC −{o.TractionControlCut * 100:0} % throttle (driver aid)"), UiTheme.Accent);
+        if (o.Downforce > 50) Flag(string.Create(CultureInfo.InvariantCulture, $"DOWNFORCE {o.Downforce / 1000:0.0} kN [A1]"), UiTheme.Muted);
         if (o.Branch == DriveBranch.Drive && o.FTractive > o.FTractiveEff + 1) Flag("TRACTION LIMIT — F_trac capped at F_x,max", UiTheme.Muted);
         if (_sim.CurrentSurface is Surface.Grass or Surface.Barrier) Flag("OFF TRACK — grass [E2]", UiTheme.Bad);
         if (_sim.Collisions.InContact) Flag("BARRIER CONTACT [E3]", UiTheme.Bad);

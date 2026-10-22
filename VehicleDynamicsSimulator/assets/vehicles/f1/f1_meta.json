@@ -1,0 +1,89 @@
+{
+  "source": "FerrariF1/ferrari_f1_2019.glb",
+  "credit": "Ferrari F1 2019 by valvetin (https://sketchfab.com/valvetin), CC-BY-4.0, https://sketchfab.com/3d-models/ferrari-f1-2019-1b050bffe4e749b586b4782ee7ff4fd0",
+  "frame": "Godot: car faces -Z, left = -X, metres, origin on the ground below the CG (0.45 x wheelbase ahead of the rear axle)",
+  "scale_basis": "overall width 2.0 m (2019 F1 maximum)",
+  "scale_to_metres_from_source_world": 0.7908787890942037,
+  "wheelbase_m": 3.6390626641358352,
+  "cg_to_rear_m": 1.637578198861126,
+  "track_front_m": 1.6067007852880528,
+  "track_rear_m": 1.5657774655423213,
+  "tyre_radius_m": {
+    "fl": 0.30562464725027777,
+    "fr": 0.3056246472502767,
+    "rl": 0.30562464725027777,
+    "rr": 0.3056246472502767
+  },
+  "hubs": {
+    "fl": [
+      -0.8034,
+      0.3056,
+      -2.0009
+    ],
+    "fr": [
+      0.8034,
+      0.3056,
+      -2.0021
+    ],
+    "rl": [
+      -0.7829,
+      0.3056,
+      1.6381
+    ],
+    "rr": [
+      0.7829,
+      0.3056,
+      1.637
+    ]
+  },
+  "body_aabb_min": [
+    -0.9953,
+    0.1085,
+    -3.2046
+  ],
+  "body_aabb_max": [
+    1.0047,
+    1.1228,
+    2.3918
+  ],
+  "overall_aabb_min": [
+    -0.9953,
+    0.0,
+    -3.2046
+  ],
+  "overall_aabb_max": [
+    1.0047,
+    1.1228,
+    2.3918
+  ],
+  "steering_wheel": {
+    "centre": [
+      0.0058,
+      0.6285,
+      -0.9858
+    ],
+    "axis": [
+      0.0,
+      0.2588,
+      0.9659
+    ]
+  },
+  "cockpit_eye": [
+    0.0058,
+    0.8485,
+    -0.5058
+  ],
+  "tcam_eye": [
+    0.0,
+    1.2428,
+    -0.1985
+  ],
+  "triangles": {
+    "body": 482456,
+    "steering": 29096,
+    "fl": 35776,
+    "fr": 35776,
+    "rl": 35776,
+    "rr": 35776
+  }
+}

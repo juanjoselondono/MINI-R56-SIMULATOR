@@ -29,6 +29,8 @@ public struct TelemetrySample
     // Appended columns (E4 dynamic single-track, E5 launch clutch)
     public double AlphaFront, AlphaRear, FyFront, FyRear, FzFront, FzRear, ClutchSlipRpm;
     public bool ClutchLocked;
+    // Appended columns (A1 downforce, driven-axle forces)
+    public double Downforce, FxFront, FxRear;
     /// <summary>Odometer [m] (kept for comparisons; not a §6 column).</summary>
     public double Distance;
 }
@@ -88,6 +90,7 @@ public sealed class SimulationRecorder
         "f_x_max_n", "f_drag_n", "f_rolling_n", "f_grade_n", "f_brake_n", "grip_usage", "slip_indicator",
         "track_s_m", "track_lateral_m", "surface", "lap", "lap_time_s", "collision_severity_mps", "event",
         "alpha_f_rad", "alpha_r_rad", "f_yf_n", "f_yr_n", "f_zf_n", "f_zr_n", "clutch_locked", "clutch_slip_rpm",
+        "downforce_n", "f_xf_n", "f_xr_n",
     };
 
     private readonly int _stepsPerSample;
@@ -171,6 +174,7 @@ public sealed class SimulationRecorder
             CollisionSeverity = t.CollisionSeverity, Event = evt, Distance = s.Distance,
             AlphaFront = o.AlphaFront, AlphaRear = o.AlphaRear, FyFront = o.FyFront, FyRear = o.FyRear,
             FzFront = o.FzFront, FzRear = o.FzRear, ClutchLocked = o.ClutchLocked, ClutchSlipRpm = o.ClutchSlipRpm,
+            Downforce = o.Downforce, FxFront = o.FxFront, FxRear = o.FxRear,
         };
     }
 
@@ -201,7 +205,8 @@ public sealed class SimulationRecorder
             sb.Append((s.Event ?? "").Replace(',', ';')).Append(',');
             F(s.AlphaFront); F(s.AlphaRear); F(s.FyFront); F(s.FyRear); F(s.FzFront); F(s.FzRear);
             sb.Append(s.ClutchLocked ? 1 : 0).Append(',');
-            sb.Append(s.ClutchSlipRpm.ToString("R", CultureInfo.InvariantCulture));
+            F(s.ClutchSlipRpm); F(s.Downforce); F(s.FxFront);
+            sb.Append(s.FxRear.ToString("R", CultureInfo.InvariantCulture));
             sb.Append('\n');
             w.Write(sb.ToString());
         }

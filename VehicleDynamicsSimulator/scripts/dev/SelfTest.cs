@@ -10,6 +10,7 @@ using Simulator.Track;
 using Simulator.UI;
 using Simulator.Vehicle;
 using VehicleDynamics.Core.Simulation;
+using VehicleDynamics.Core.Track;
 
 namespace Simulator.Dev;
 
@@ -66,7 +67,15 @@ public partial class SelfTest : Node
             await Frames(2);
             // --selftest-only=Monaco runs just the converted-track suite (quick check after re-converting assets).
             bool monacoOnly = OS.GetCmdlineUserArgs().Contains("--selftest-only=Monaco");
-            if (!monacoOnly)
+            if (OS.GetCmdlineUserArgs().Contains("--selftest-only=F1"))
+            {
+                _track = "F1";
+                _sim.LoadTrack("Circuit");
+                await Frames(2);
+                await VehicleProfileSuite();
+                monacoOnly = true;   // skip the Mini suites; Monaco below still runs only if requested
+            }
+            else if (!monacoOnly)
             {
                 foreach (var track in new[] { "Oval", "Circuit" })
                 {
@@ -77,6 +86,10 @@ public partial class SelfTest : Node
                 }
                 _track = "both";
                 await UiAndComparison();
+                _track = "F1";
+                _sim.LoadTrack("Circuit");
+                await Frames(2);
+                await VehicleProfileSuite();
             }
             if (TrackManager.Available.Contains("Monaco"))
             {
@@ -476,6 +489,86 @@ public partial class SelfTest : Node
     }
 
     private double _referenceLap = double.NaN;
+    private double _miniCircuitLineLap = double.NaN;
+
+    /// <summary>
+    /// Vehicle profiles: swap to the provisional F1 (3D model, footprint, RWD, downforce), drive a lap on its racing line,
+    /// swap back to the Mini.
+    /// </summary>
+    private async Task VehicleProfileSuite()
+    {
+        _sim.SwitchVehicle(VehicleProfiles.F1);
+        await Frames(3);
+        var vis = V.VisualsNode;
+        var car = V.Visual;
+        var p = V.Parameters;
+        var meta = Json.ParseString(Godot.FileAccess.GetFileAsString(car.MetaPath)).AsGodotDictionary();
+        double metaL = meta["wheelbase_m"].AsDouble();
+        var hubs = meta["hubs"].AsGodotDictionary();
+        double hubFrontZ = hubs["fl"].AsGodotArray()[2].AsDouble(), hubRearZ = hubs["rl"].AsGodotArray()[2].AsDouble();
+        bool axlesMatch = Math.Abs(metaL - p.Wheelbase) < 1e-3 && Math.Abs(hubRearZ - p.CgToRear) < 5e-3
+                          && Math.Abs(-hubFrontZ - (p.Wheelbase - p.CgToRear)) < 5e-3;
+        Check("swap to F1 (model, footprint, physics)",
+            vis != null && vis.SceneFilePath == car.VisualScene && vis.WheelCount == 4 && vis.HasSteeringWheel
+            && p.Profile == VehicleProfiles.F1 && p.DriveLayout == DriveLayout.RearWheelDrive && p.Mass == 743
+            && Math.Abs(_sim.Collisions.HalfWidth - 1.0) < 0.01 && axlesMatch && D.State.V == 0 && _sim.Laps.Lap == 0,
+            $"scene {vis?.SceneFilePath}, wheels {vis?.WheelCount}, steering wheel {vis?.HasSteeringWheel}; footprint {F(2 * _sim.Collisions.HalfLength, "0.00")} × {F(2 * _sim.Collisions.HalfWidth, "0.00")} m; " +
+            $"visual axles vs physics: L {F(metaL, "0.0000")} / {F(p.Wheelbase, "0.0000")} m, rear hub {F(hubRearZ, "0.000")} / c {F(p.CgToRear, "0.000")} m");
+
+        GameSession.RacingLineSource = RacingLineSource.Optimised;
+        _sim.BuildRacingLine();
+        _sim.RestartSimulation();
+        var driver = new CentrelineDriver(_sim.RacingLineTrack);
+        V.AutoShift = true;
+        V.Autopilot = vc => driver.Drive(vc.Dynamics.State, vc.Dynamics.Outputs, vc.Parameters);
+        double maxDown = 0, maxFrontDrive = 0, vMax = 0;
+        var prevAfter = V.AfterStep;
+        V.AfterStep = (d, u) =>
+        {
+            prevAfter?.Invoke(d, u);
+            maxDown = Math.Max(maxDown, d.Outputs.Downforce);
+            vMax = Math.Max(vMax, d.State.V);
+            if (d.Outputs.Branch == DriveBranch.Drive) maxFrontDrive = Math.Max(maxFrontDrive, Math.Abs(d.Outputs.FxFront));
+        };
+        int imp0 = _sim.Collisions.ImpulseCount;
+        double nextTrace = D.State.Time;
+        var trace = new List<string>();
+        bool lap = await Until(() =>
+        {
+            if (D.State.Time >= nextTrace)
+            {
+                bool fine = OS.GetEnvironment("SELFTEST_F1_TRACE") == "1" && D.State.Time > 12 && D.State.Time < 22;
+                nextTrace += fine ? 0.25 : 5;
+                if (fine)
+                {
+                    var q = D.Outputs;
+                    trace.Add(FormattableString.Invariant($"t={D.State.Time:0.00} s={_sim.Laps.Projection.S:0} v={D.State.V * 3.6:0} vy={D.State.Vy:0.0} r={D.State.YawRate:0.00} {q.Branch} thr={q.ThrottleApplied:0.00} brk={V.LastInputs.Brake:0.00} δ={q.SteerAngle:0.000} κ={_sim.RacingLineTrack.Curvature(_sim.RacingLineTrack.Project(D.State.X, D.State.Y).S):0.000} F: fx={q.FxFront:0} fy={q.FyFront:0} g={q.GripFront:0} αf={q.AlphaFront:0.000} | R: fx={q.FxRear:0} fy={q.FyRear:0} g={q.GripRear:0} αr={q.AlphaRear:0.000} down={q.Downforce:0}"));
+                    return _sim.Laps.Laps.Count > 0;
+                }
+                var o = D.Outputs;
+                trace.Add(FormattableString.Invariant($"t={D.State.Time:0} s={_sim.Laps.Projection.S:0} lat={_sim.Laps.Projection.Lateral:0.0} v={D.State.V * 3.6:0} vy={D.State.Vy:0.0} r={D.State.YawRate:0.00} gear={D.State.Gear} branch={o.Branch} slip={o.SlipIndicator:0.0} grip={o.GripUsage:0.00} over={o.Oversteer} under={o.Understeer} contact={_sim.Collisions.InContact}"));
+            }
+            return _sim.Laps.Laps.Count > 0;
+        }, 300);
+        V.AfterStep = prevAfter;
+        V.Autopilot = null;
+        V.AutoShift = false;
+        var rec = lap ? _sim.Laps.Laps[0] : default;
+        int impacts = _sim.Collisions.ImpulseCount - imp0;
+        if (!lap || !rec.Valid || impacts > 0) foreach (var t in trace) GD.Print("[selftest] F1 trace " + t);
+        double w = p.Mass * p.G;
+        Check("F1 lap on its racing line (RWD, downforce)", lap && rec.Valid && impacts == 0 && (double.IsNaN(_miniCircuitLineLap) || rec.Time < _miniCircuitLineLap) && maxDown > 0.3 * w && maxFrontDrive == 0,
+            lap ? $"lap {F(rec.Time, "0.00")} s vs Mini {F(_miniCircuitLineLap, "0.00")} s, valid={rec.Valid}, impacts={impacts}; top {F(vMax * 3.6, "0")} km/h, peak downforce {F(maxDown, "0")} N ({F(maxDown / w, "0.00")} W); front drive force {F(maxFrontDrive)} N"
+                : "no lap within 300 s");
+
+        _sim.SwitchVehicle(VehicleProfiles.MiniR56);
+        await Frames(3);
+        var mini = VehicleParameters.MiniCooperR56();
+        bool same = SimulationRecorder.ParameterKeyValues(V.Parameters).SequenceEqual(SimulationRecorder.ParameterKeyValues(mini));
+        Check("swap back to the Mini", same && V.VisualsNode?.SceneFilePath == V.Visual.VisualScene && V.Visual.Id == VehicleProfiles.MiniR56
+                && Math.Abs(_sim.Collisions.HalfWidth - 0.841) < 0.002 && V.VisualsNode!.WheelCount == 4,
+            $"parameters = Mini profile: {same}; scene {V.VisualsNode?.SceneFilePath}; footprint half width {F(_sim.Collisions.HalfWidth, "0.000")} m");
+    }
 
     /// <summary>
     /// The same scripted driver, now following the optimised racing line instead of the track's reference line: the lap
@@ -514,6 +607,7 @@ public partial class SelfTest : Node
         int impacts = _sim.Collisions.ImpulseCount - imp0;
         V.Autopilot = null;
         V.AutoShift = false;
+        if (lap && _sim.Track.TrackName == "Circuit" && _sim.Vehicle.Parameters.Profile == VehicleProfiles.MiniR56) _miniCircuitLineLap = rec.Time;
         Check("scripted lap on the racing line", lap && rec.Valid && impacts == 0 && rec.Time < _referenceLap,
             lap ? $"{_sim.RacingLineInfo}: lap {F(rec.Time, "0.00")} s vs {F(_referenceLap, "0.00")} s on the reference line, valid={rec.Valid}, wall impacts={impacts}; reference-lap estimate {F(_sim.RacingLine.LapTime, "0.0")} s" : "no lap within 400 s");
         _sim.RestartSimulation();
