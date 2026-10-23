@@ -13,7 +13,8 @@ public readonly record struct LapRecord(int Lap, double Time, bool Valid);
 /// the start line (s = 0) is crossed forwards after passing checkpoints at 1/3 and 2/3 of the lap in order, so cutting
 /// back across the line or driving the wrong way never completes a lap. The crossing time is interpolated linearly
 /// between the two steps around the line. A lap is invalid when the car centre spends more than
-/// <see cref="OffTrackAllowance"/> s beyond the road + curb, or after a barrier impact.
+/// <see cref="OffTrackAllowance"/> s beyond the road + curb (cutting), after a recovery to the centreline or when the
+/// transmission is destroyed. Barrier impacts do not invalidate it.
 /// </summary>
 public sealed class LapTimer
 {

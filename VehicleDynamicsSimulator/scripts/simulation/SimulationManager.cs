@@ -641,7 +641,7 @@ public partial class SimulationManager : Node
 
     private void OnImpact(ImpactEvent e)
     {
-        Laps.InvalidateLap();
+        // A crash does not invalidate the lap: a lap that reaches the line counts, whatever happened on the way.
         LastImpactSeverity = e.Severity;
         Telemetry.AddEvent(FormattableString.Invariant($"impact:{e.Severity:F2}"));
         var point = VehicleModelAdapter.ToGodotPosition(e.PointX, e.PointY, 0.5);

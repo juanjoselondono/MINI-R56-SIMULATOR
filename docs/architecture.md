@@ -125,7 +125,7 @@ So what you see is what you hit.
 | Barrier detection | `CollisionManager.AfterStep` → `BarrierContact.Check` on the 3.76 × 1.68 m body footprint (measured from the JCW model's shell without mirrors, centre 0.261 m behind the CG) | Analytic, deterministic, per physics step. No Godot physics is involved in the car's motion. |
 | Response (E3, E4 model) | `RigidBodyImpact.Resolve` at the contact point: restitution + wall friction + yaw-rate change (vehicle_model §19). One bouncing impulse per contact (latch, bounce threshold on the contact-point normal speed), then the e = 0 version while latched. |
 | Response (E3, E1 model) | First step of a contact: `CollisionResponse.Resolve` (restitution e, tangential loss k_t, yaw kick ≤ maxYawKick). While latched: `SustainedContact.Resolve`. Both applied via `ApplyCollision`. | One impulse per contact (`ContactLatch`); a new impulse only after separation. Speed can never increase. |
-| Effects | `SimulationManager.OnImpact` → sparks, camera shake, `EngineSynth.TriggerImpact`, telemetry event `impact:<severity>`, lap invalidated | Cosmetic only. |
+| Effects | `SimulationManager.OnImpact` → sparks, camera shake, `EngineSynth.TriggerImpact`, telemetry event `impact:<severity>` (the lap stays valid) | Cosmetic only. |
 | Godot collision shapes | `StaticBody3D` with the barrier faces (layer 2) | Used only by the chase camera's ray query, which keeps the camera in front of walls. |
 | Recovery | `RecoverToTrack`: explicit reset at rest on the nearest centreline point, engine damage kept, lap invalid | The model has no reverse gear, so a head-on stop needs this. |
 
