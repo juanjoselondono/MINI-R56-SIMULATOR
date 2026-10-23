@@ -182,8 +182,21 @@ triangles on Monaco.
 | 3D model | One scene per car, `scenes/vehicles/MiniJcwVisuals.tscn` and `F1Visuals.tscn`, with the generic `VehicleVisuals` script. Nodes are found by name: Body, WheelXX (hub) → spin node, SteeringWheel. Material tuning applies to the Mini only. |
 | Presentation data | `VehicleCatalog`: visuals scene, metadata, camera eyes (Mini: bonnet/cockpit; F1: T-cam/cockpit from `f1_meta.json`), chase distance, collision footprint from the asset AABB (Mini 3.76 × 1.68 m, F1 5.60 × 2.00 m), engine firings per revolution for the sound (inline-4: 2, V6: 3) |
 | Swap | `SimulationManager.SwitchVehicle(id)` → `ApplyParameters` with another profile → `VehicleController` replaces the Visuals child, resizes the trigger volume, rebuilds the model at rest. The manager then reconfigures the collision footprint, rebuilds the racing line (margin = half width + 0.36 m) and restarts on the grid. A recording in progress is stopped. |
+| Balance UI | Setup panel group "Handling balance": C_αr, C_αf, CG position, rear downforce share, rear grip factor, roll share, engine braking, TC on/off, TC cornering limit, TC yaw tolerance; derived readout: front weight %, linear understeer gradient (°/g), downforce at 200 km/h front/rear |
 | UI | Main menu: vehicle buttons above the track list (`GameSession.VehicleProfile`; a saved configuration's profile wins). Setup panel: vehicle drop-down; rows rebuilt per profile (gear count, torque nodes, defaults). `-- --vehicle=f1_2019` on the command line. |
 | Assets | `tools/asset_pipeline/import_f1_glb.py`: GLB → `assets/vehicles/f1/f1.glb` + `f1_meta.json` (node transforms baked into Godot's frame, mirrored nodes' winding fixed, wheels and steering wheel separated by name and proximity, origin under the CG, scaled to the 2.000 m width, BLEND materials without alpha → OPAQUE, decals → MASK) |
+
+### 4.4 Session loading
+
+| Piece | Implementation |
+|---|---|
+| Loading screen | `scenes/ui/LoadingScreen.tscn` + `LoadingScreen.cs`: full-screen `TextureRect` (`assets/ui/loading_bg.png` if present, imported or not; dark fallback), title, status, `ProgressBar` easing to the reported value |
+| Autoload | `SceneManager` (project.godot `[autoload]`): owns the screen on a CanvasLayer (layer 100), so it survives the scene change |
+| Menu → session | `StartSession`: screen shown at once → `ResourceLoader.LoadThreadedRequest` for Main.tscn, the vehicle's visuals scene, the track scene and its physics mesh (no sub-threads: with them the loader threads raced on the Monaco GLB's sub-resources) → polled with `LoadThreadedGetStatus` each frame (0–65 %) → `ChangeSceneToPacked` with `GameSession.StagedLoad` |
+| Staged build | `SimulationManager`: track core and collision (sync, ~0.45 s) → spawn (car paused) → racing line via `BuildRacingLineAsync` (optimiser on `Task.Run`, progress through `ReportFromWorker`) → restart, unpause, `Finish` |
+| Vehicle swap | `ChangeVehicleAsync` / `SwitchVehicleAsync` (setup panel): same screen, threaded load of the visuals scene, racing line for the new width |
+| Racing-line cache | `RacingLineCache`: user://cache/racing_lines/*.json, key = algorithm version + track + margin + hash of the corridor (so a re-converted track or another car width recomputes) |
+| CLI modes | `--selftest`, `--demo`, `--perf`, `--track=` keep the synchronous path (deterministic) |
 
 ## 5. Telemetry and configuration
 

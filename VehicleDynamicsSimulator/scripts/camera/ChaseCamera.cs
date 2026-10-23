@@ -56,6 +56,12 @@ public partial class ChaseCamera : Camera3D
         GraphicsSettings.Apply(GraphicsSettings.FromCommandLine(), GetViewport(), _environment, Blur);
     }
 
+    public override void _ExitTree()
+    {
+        Compositor = null;
+        Blur.Release();
+    }
+
     /// <summary>F6: next graphics preset.</summary>
     public string CycleGraphics()
     {

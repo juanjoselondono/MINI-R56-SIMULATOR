@@ -369,8 +369,17 @@ def main(src_path, out_dir):
     # Steering-column axis: an F1 wheel is wider than tall and its grips/paddles give it depth, so its thinnest principal
     # direction is not the column. ASSUMPTION: column 15 deg above horizontal, pointing back at the driver (+Z).
     axis = np.array([0.0, np.sin(np.radians(15)), np.cos(np.radians(15))])
-    # Cameras: driver's eye behind and above the steering wheel; T-cam above the airbox (highest body point).
-    eye = sw_centre + np.array([0.0, 0.22, 0.48])
+    # Driver's eye from the cockpit geometry on the centreline (|x| < 4 cm): the roll hoop / airbox starts where the
+    # body rises above 0.95 m behind the steering wheel; the helmet sits in front of it, so the eye is 0.25 m ahead of the
+    # airbox face. The halo's top bar is the highest point between the steering wheel and the airbox; on F1 onboards it
+    # crosses above the driver's line of sight, so the eye is 0.14 m below it. (2019 model: eye 0.74 m above the ground,
+    # 0.43 m behind and 0.11 m above the steering-wheel centre.)
+    centre = body_pts[np.abs(body_pts[:, 0]) < 0.04]
+    behind = centre[centre[:, 2] > sw_centre[2] + 0.2]
+    airbox_z = behind[behind[:, 1] > 0.95][:, 2].min()
+    cockpit = centre[(centre[:, 2] > sw_centre[2] - 0.1) & (centre[:, 2] < airbox_z)]
+    halo_top = cockpit[:, 1].max()
+    eye = np.array([0.0, halo_top - 0.14, airbox_z - 0.25])
     top = body_pts[np.argmax(body_pts[:, 1])]
     tcam = np.array([0.0, top[1] + 0.12, top[2] - 0.05])
     tyre_r = {w: float(np.ptp(parts[w].points()[:, 1]) / 2) for w in WHEELS}

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
+using Simulator.Simulation;
 using VehicleDynamics.Core.Track;
 
 namespace Simulator.Track;
@@ -36,6 +37,14 @@ public partial class TrackManager : Node3D
     /// <summary>Scenes of converted mesh tracks, by name, and the converted data each needs.</summary>
     public static readonly Dictionary<string, string> MeshTracks = new() { ["Monaco"] = "res://scenes/TrackMonaco.tscn" };
     private static readonly Dictionary<string, string> MeshTrackData = new() { ["Monaco"] = "res://assets/tracks/monaco/monaco_track.json" };
+    private static readonly Dictionary<string, string> MeshTrackPhysics = new() { ["Monaco"] = "res://assets/tracks/monaco/monaco_physics.obj" };
+
+    /// <summary>Heavy resources of a track (scene with its visual GLB, physics mesh) for background loading.</summary>
+    public static IEnumerable<string> ResourcesFor(string name)
+    {
+        if (MeshTracks.TryGetValue(name, out var scene)) yield return scene;
+        if (MeshTrackPhysics.TryGetValue(name, out var physics)) yield return physics;
+    }
 
     /// <summary>
     /// Procedural tracks always; converted tracks only when their assets are present (they are generated locally by
@@ -69,9 +78,11 @@ public partial class TrackManager : Node3D
             if (!Available.Contains(name))
                 throw new InvalidOperationException($"Track '{name}' is not converted yet: run tools/asset_pipeline/kn5_convert.py (docs/run_instructions.md).");
             Geometry = null;
-            Mesh = GD.Load<PackedScene>(scenePath).Instantiate<MeshTrack>();
+            PackedScene packed;
+            using (LoadTimer.Stage("track scene load (glb, textures)")) packed = GD.Load<PackedScene>(scenePath);
+            using (LoadTimer.Stage("track scene instantiate")) Mesh = packed.Instantiate<MeshTrack>();
             AddChild(Mesh);
-            Mesh.Load();
+            using (LoadTimer.Stage("track data + collision build")) Mesh.Load();
             Line = Mesh.Line;
             SpawnPose = Mesh.Spawn;
             Bounds = Mesh.Bounds;

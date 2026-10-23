@@ -15,6 +15,10 @@ config/description="Mini Cooper R56 (N16) digital twin: model.m longitudinal dyn
 run/main_scene="res://scenes/MainMenu.tscn"
 config/features=PackedStringArray("4.7", "C#", "Forward Plus")
 
+[autoload]
+
+SceneManager="*res://scripts/simulation/SceneManager.cs"
+
 [display]
 
 window/size/viewport_width=1600

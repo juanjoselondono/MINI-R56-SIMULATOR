@@ -83,10 +83,11 @@ public class VehicleProfileTests
     {
         var p = VehicleParameters.F1Provisional();
         double w = p.Mass * p.G;
-        double expected = p.Mu * (w * (p.Wheelbase - p.CgToRear) / p.Wheelbase) / (1 - p.CgHeight / p.Wheelbase * p.Mu);
+        double muR = p.Mu * p.RearGripFactor;   // wider rear tyres
+        double expected = muR * (w * (p.Wheelbase - p.CgToRear) / p.Wheelbase) / (1 - p.CgHeight / p.Wheelbase * muR);
         Assert.Equal(expected, TractionLimit.FxMax(p, p.Mu, 0), 9);
         double df = 5000;
-        double withAero = p.Mu * (w * (p.Wheelbase - p.CgToRear) / p.Wheelbase + df * (1 - p.AeroBalanceFront)) / (1 - p.CgHeight / p.Wheelbase * p.Mu);
+        double withAero = muR * (w * (p.Wheelbase - p.CgToRear) / p.Wheelbase + df * (1 - p.AeroBalanceFront)) / (1 - p.CgHeight / p.Wheelbase * muR);
         Assert.Equal(withAero, TractionLimit.FxMax(p, p.Mu, 0, df), 9);
     }
 
@@ -163,8 +164,58 @@ public class VehicleProfileTests
         }
         double tOff = Launch(false), tOn = Launch(true);
         _out.WriteLine($"0-100 km/h: TC off {tOff:F2} s, TC on {tOn:F2} s");
-        Assert.InRange(tOff, 2.2, 3.2);
+        Assert.InRange(tOff, 2.0, 3.2);
         Assert.InRange(tOn, tOff, 4.0);
+    }
+
+    /// <summary>
+    /// Corner exit: steady cornering on radius R at a share of μg (speed-holding throttle, yaw-rate steering
+    /// controller), then instant full throttle for 2.5 s with the steering held. Returns the peak yaw rate over the
+    /// neutral-steer yaw rate v tan δ / L (&gt; 1 = oversteer) and the steady-state rear-minus-front slip angle before
+    /// the throttle (&lt; 0 = understeer).
+    /// </summary>
+    private static (double YawRatio, double PreGapDeg) CornerExit(VehicleParameters p, double radius, double ayShare)
+    {
+        var d = new Dyn(p);
+        double v0 = Math.Sqrt(ayShare * p.Mu * p.G * radius);
+        var s = Moving(v0, d.AutoGear(v0));
+        s.YawRate = v0 / radius;
+        d.State = s;
+        double delta = Math.Atan(p.Wheelbase / radius);
+        var u = new VehicleInputs { AutoShift = true };
+        for (int i = 0; i < 4 / p.Dt; i++)
+        {
+            delta += 2 * (d.State.V / radius - d.State.YawRate) * p.Dt;
+            u.SteerAngle = Math.Clamp(delta, -p.MaxSteerAngle, p.MaxSteerAngle);
+            u.Throttle = Math.Clamp(0.3 + 0.5 * (v0 - d.State.V), 0, 1);
+            d.Step(u, p.Dt);
+        }
+        double pre = (Math.Abs(d.Outputs.AlphaRear) - Math.Abs(d.Outputs.AlphaFront)) * 180 / Math.PI;
+        double peak = 0;
+        u.Throttle = 1;
+        for (int i = 0; i < 2.5 / p.Dt; i++)
+        {
+            d.Step(u, p.Dt);
+            double rNeutral = d.State.V * Math.Tan(Math.Abs(d.Outputs.SteerAngle)) / p.Wheelbase;
+            if (rNeutral > 0.05) peak = Math.Max(peak, Math.Abs(d.State.YawRate) / rNeutral);
+        }
+        return (peak, pre);
+    }
+
+    [Fact]
+    public void F1_CornerExit_StaysInUndersteerWithTractionControl()
+    {
+        foreach (double radius in new[] { 12.0, 40.0, 100.0 })
+        {
+            var (ratio, pre) = CornerExit(VehicleParameters.F1Provisional(), radius, 0.7);
+            var raw = VehicleParameters.F1Provisional();
+            raw.TractionControl = false;
+            var (ratioOff, _) = CornerExit(raw, radius, 0.7);
+            _out.WriteLine($"R {radius} m at 0.7 μg: before throttle α_r − α_f = {pre:F2}°; full-throttle exit peak r / r_neutral = {ratio:F2} (TC off: {ratioOff:F1})");
+            Assert.True(pre < 0);            // steady state: understeer margin
+            Assert.True(ratio <= 1.0);       // power exit with TC: never rotates faster than neutral steer
+            Assert.True(ratioOff > 5);       // the raw chassis still spins under full power (no TC on real 2019 cars)
+        }
     }
 
     [Fact]

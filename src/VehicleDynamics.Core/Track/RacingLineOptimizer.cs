@@ -22,15 +22,20 @@ public static class RacingLineOptimizer
 {
     public sealed record Result(PolylineTrack Line, double[] ReferenceS, double[] Offsets, double[] Lower, double[] Upper, int Sweeps);
 
+    /// <param name="progress">Optional, called with the completed share [0, 1] (from the calling thread; the optimiser is
+    /// pure computation and may run on a worker thread).</param>
     public static Result MinimumCurvature(ITrackLine reference, double margin = 1.2, double spacing = 2.0, double omega = 1.7,
-        int outerIterations = 3)
+        int outerIterations = 3, Action<double>? progress = null)
     {
         ITrackLine around = reference;
         PolylineTrack line = null!;
         int sweeps = 0;
-        for (int k = 0; k < Math.Max(1, outerIterations); k++)
+        int passes = Math.Max(1, outerIterations);
+        for (int k = 0; k < passes; k++)
         {
-            (line, int sw) = SolveAround(around, margin, spacing, omega);
+            int pass = k;
+            (line, int sw) = SolveAround(around, margin, spacing, omega,
+                progress == null ? null : f => progress((pass + f) / passes));
             sweeps += sw;
             around = line;
         }
@@ -55,7 +60,8 @@ public static class RacingLineOptimizer
     private static int Stations(ITrackLine line, double spacing)
         => Math.Max(Coarsest * 4, (int)Math.Ceiling(line.Length / spacing / Coarsest) * Coarsest);
 
-    private static (PolylineTrack Line, int Sweeps) SolveAround(ITrackLine reference, double margin, double spacing, double omega)
+    private static (PolylineTrack Line, int Sweeps) SolveAround(ITrackLine reference, double margin, double spacing, double omega,
+        Action<double>? progress = null)
     {
         int n = Stations(reference, spacing);
         double ds = reference.Length / n;
@@ -76,12 +82,17 @@ public static class RacingLineOptimizer
         var off = new double[n];
         for (int i = 0; i < n; i++) off[i] = Math.Clamp(0, lo[i], hi[i]);
         int sweeps = 0;
-        foreach (int step in new[] { Coarsest, 4, 2, 1 })
+        int[] steps = { Coarsest, 4, 2, 1 };
+        for (int level = 0; level < steps.Length; level++)
         {
+            int step = steps[level];
             int m = n / step;
             int maxSweeps = step == Coarsest ? 6000 : 2500;
             for (int sweep = 0; sweep < maxSweeps; sweep++)
             {
+                // Finer levels cost more per sweep: weight the levels 1, 2, 4, 8 (of 15).
+                if (progress != null && sweep % 50 == 0)
+                    progress(((1 << level) - 1 + (1 << level) * (double)sweep / maxSweeps) / 15.0);
                 double maxChange = 0;
                 for (int j = 0; j < m; j++)
                 {

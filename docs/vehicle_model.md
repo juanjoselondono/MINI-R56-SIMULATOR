@@ -720,7 +720,7 @@ Every value is an engineering estimate unless a regulation or a measurement is n
 | CG to rear axle c, CG height h | 0.45 L = 1.638 m, 0.28 m | 45 % front weight (2019 cars: about 44–46 %), estimate |
 | Tyre radius R_w | 0.330 m | 660 mm 2019 tyres (13″ rim + 305 mm × 54.1 % sidewall) |
 | μ | 1.6 | warm dry slicks, estimate |
-| C_d A, C_l A, aero balance | 0.75 × 1.5 = 1.13 m², 3.0 × 1.5 = 4.5 m², 42 % front | estimate (L/D = 4) |
+| C_d A, C_l A, aero balance | 0.75 × 1.5 = 1.13 m², 3.0 × 1.5 = 4.5 m², 38 % front (rear-biased) | estimate (L/D = 4); balance from the corner-exit study §27 |
 | Power unit | torque table 350–680 N·m over 4000–12500 rpm, 703 kW peak at about 11 000 rpm | ICE + MGU-K at the crank, estimate |
 | Gears, final drive, η | 8 gears 4.09 … 1.145, i_fd = 4.0 (1st ≈ 95 km/h, 8th ≈ 340 km/h at 12 500 rpm), 0.95 | estimate |
 | Rotating mass factors | (I_e (i_g i_fd/R_w)² + I_w/R_w²)/M with I_e = 0.08, I_w = 4.0 kg·m² | estimate, consistent with E5 |
@@ -728,7 +728,9 @@ Every value is an engineering estimate unless a regulation or a measurement is n
 | Launch clutch (E5) | bite 9000 rpm, capacity 900 N·m, I_e 0.08 kg·m² | estimate |
 | Brakes | μ_b = 0.8 | model.m form μ_b μ (W + F_down); 0.8 instead of 0.9 because slick friction falls at the ~4× static tyre load at top speed. Gives about 6 g at 330 km/h (2019 cars: 5–6 g). |
 | I_zz | 1200 kg·m² | estimate (M × (1.27 m)²) |
-| C_αf / C_αr | 180 000 / 260 000 N/rad | estimate: about 2.1–2.3 × the Mini; rear stiffer for stability under power |
+| C_αf / C_αr | 180 000 / 320 000 N/rad | estimate: rear stiffer (405 mm rear vs 305 mm front tyres) |
+| Rear grip factor | 1.10 | wider rear tyres, estimate (rear-axle μ multiplier) |
+| Engine braking | 50 N·m | estimate; 120 N·m gave 5.9 kN of rear braking in 1st gear, enough to spin on a lift |
 | Tyre load sensitivity, front roll share | 0.10, 0.55 | estimate |
 | δ_max | 0.35 rad | the Monaco hairpin needs about atan(L/10 m) |
 | Reverse | 4.0 | estimate |
@@ -774,9 +776,10 @@ the same grip law: $v_c^2 = f\mu g\cos\theta / (\kappa - f\mu k)$ with $k = \tfr
 traction control.
 
 Each step, the applied throttle is the driver's throttle × (1 − cut). The driven axle may use a share $u$ of its friction
-circle in combination: $F_{drive} \le \sqrt{(u\,g_{axle})^2 - F_y^2}$, with $u = 0.97$ going straight, falling to 0.85
-once $F_y$ reaches 40 % of the axle capacity. The cut grows at 12/s per unit of excess demand, and recovers at 2/s plus
-10/s per unit of spare capacity.
+circle in combination: $F_{drive} \le \sqrt{(u\,g_{axle})^2 - F_y^2}$, with $u = 0.97$ going straight, falling to the
+cornering limit (`TractionControlCornerUsage`, 0.85) once $F_y$ reaches 40 % of the axle capacity. The cut grows at 12/s
+per unit of excess demand, and recovers at 2/s plus 10/s per unit of spare capacity. Revised on 2026-10-22 (§27): a
+feedforward cap, a yaw-rate stability term, and no entry into the coast branch while the driver is on the throttle.
 
 Why it exists: without it, about 700 kW through the rear tyres uses up the whole rear friction circle. With any steering
 input from binary throttle (keyboard, scripted driver), the F1 spun at launch and then held a stable donut. A fixed 95 %
@@ -785,3 +788,34 @@ target still spun within 0.25 s of a yaw disturbance at 140 km/h, which set the 
 Measured: full throttle with 0.08 rad of lock from 72 km/h, 3 s — without TC max $|v_y|$ = 24.1 m/s (spin); with TC
 0.4 m/s and still accelerating. Its cost is in the standing start: 0–100 km/h in 3.49 s instead of 2.69 s, because it
 interacts with the E5 slipping clutch.
+
+## 27. Handling balance and corner exit (2026-10-22)
+
+**Rear grip factor.** `VehicleParameters.RearGripFactor` multiplies μ on the rear axle: in the E4 axle grip, and in the
+RWD traction limit as $\mu_R = \mu \cdot$ factor. It represents wider rear tyres, and is 1 for the Mini and model.m.
+
+**Corner-exit study.** The test is `F1_CornerExit_StaysInUndersteerWithTractionControl`:
+- steady cornering at 0.7 μg on radii of 12, 40 and 100 m, then instant full throttle with the steering held for 2.5 s;
+- measured: the steady-state rear-minus-front slip angle before the throttle ($<0$ = understeer), and the peak yaw rate
+  over the neutral-steer value $v\tan\delta/L$ ($>1$ = oversteer).
+
+What it showed:
+- **Before the throttle** the F1 was mildly understeering (rear 0.15–0.3° below the front). The oversteer came entirely
+  from the throttle.
+- **The first 50 ms decided it.** A trigger snap saturates the rear axle before a feedback cut can act. The rear lateral
+  force fell to 0 N and the yaw reached 1.3–1.5× neutral.
+- **Chassis levers alone cannot fix it.** With a TC that limits a *share* of the rear friction circle, more rear grip
+  only allows more drive: rear grip 1.15 moved the peak from 1.48 to 1.42.
+- **A tight radius exposed an engine-braking spin.** When TC trimmed the throttle below the input threshold, the coast
+  branch put 5.9 kN of engine braking on the rear axle.
+
+Changes:
+1. **Traction control.** Feedforward cap: with the clutch locked the drive force is proportional to the throttle, so the
+   throttle is capped *before* it is applied. A TC cut never enters the coast branch while the driver is on the throttle.
+   A stability term cuts on yaw rate above `TractionControlYawTolerance` × neutral. The cornering limit
+   (`TractionControlCornerUsage`, 0.85) is reached at 40 % lateral use.
+2. **F1 chassis**, matching the real cars' wider rear tyres and rear-biased downforce: C_αr 320 kN/rad, rear grip 1.10,
+   aero balance 38 % front, engine braking 50 N·m.
+
+Result with TC on: peak yaw 0.82–0.95× neutral (understeer) at all three radii, before-throttle margin −0.45 … −0.71°.
+With TC off, the raw chassis still spins under full power (70–99× neutral).

@@ -16,6 +16,14 @@ public partial class MainMenu : Control
     public override void _Ready()
     {
         var args = OS.GetCmdlineUserArgs();
+        if (args.Contains("--via-loading-screen"))
+        {
+            // Dev: the interactive start path (loading screen, background loading) without clicking.
+            if (args.FirstOrDefault(a => a.StartsWith("--track=")) is { } trackArg) GameSession.TrackName = trackArg["--track=".Length..];
+            if (args.FirstOrDefault(a => a.StartsWith("--vehicle=")) is { } vehicleArg) GameSession.VehicleProfile = vehicleArg["--vehicle=".Length..];
+            Callable.From(() => SceneManager.Instance!.StartSession()).CallDeferred();
+            return;
+        }
         if (args.Any(a => a.StartsWith("--autodrive") || a == "--selftest" || a == "--demo" || a.StartsWith("--track=") || a.StartsWith("--shots=") || a.StartsWith("--perf=")))
         {
             CallDeferred(MethodName.Start);
@@ -109,5 +117,13 @@ public partial class MainMenu : Control
         else _info.Text = "Invalid configuration: " + err;
     }
 
-    private void Start() => GetTree().ChangeSceneToFile("res://scenes/Main.tscn");
+    /// <summary>
+    /// Menu: loading screen + background loading (SceneManager). Command-line test modes (deferred call from _Ready) load
+    /// synchronously, so their timing and results stay deterministic.
+    /// </summary>
+    private void Start()
+    {
+        if (_config != null && SceneManager.Instance != null) SceneManager.Instance.StartSession();
+        else GetTree().ChangeSceneToFile("res://scenes/Main.tscn");
+    }
 }

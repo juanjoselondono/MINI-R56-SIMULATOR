@@ -94,6 +94,16 @@ In the editor, the C# project builds automatically on run (Build button, top rig
 
 The car starts at rest on the start/finish line. The lap clock starts when the car first moves.
 
+Starting a session from the menu shows a **loading screen**: the models load in the background and the racing line is
+optimised on a worker thread. The background image is `VehicleDynamicsSimulator/assets/ui/loading_bg.png` (any size; it
+is cropped to fill the screen). Without it, the screen is dark grey. The first start of a track with a car takes longer
+(Monaco + F1: about 11 s), because the optimised racing line is computed once and then cached in
+`~/.local/share/godot/app_userdata/R56 Vehicle Dynamics Simulator/cache/racing_lines/` (delete to recompute). Later
+starts take about 5 s. Changing the car in the setup panel uses the same screen.
+
+**F1 handling.** The setup panel's "Handling balance" group holds everything that moves the car between understeer and
+oversteer. The readout above the list shows the resulting balance.
+
 ### Controls
 
 | Key | Gamepad | Action |
@@ -171,8 +181,11 @@ failure) are in the `event` column.
 These go after `--`. They skip the main menu.
 
 ```bash
-# In-game self-test on all tracks and both cars (52 checks), deterministic; exit code 0 = all pass
+# In-game self-test on all tracks and both cars (53 checks), deterministic; exit code 0 = all pass
 $GODOT --headless --fixed-fps 60 --path . -- --selftest
+# Interactive start path without clicking (loading screen + background loading); --loading-shots=DIR saves it at 30/85 %
+$GODOT --path . -- --via-loading-screen --track=Monaco --vehicle=f1_2019
+
 # Only the Monaco suite (12 checks), e.g. after re-converting the track; --selftest-only=F1 runs the vehicle-profile suite
 $GODOT --headless --fixed-fps 60 --path . -- --selftest --selftest-only=Monaco
 

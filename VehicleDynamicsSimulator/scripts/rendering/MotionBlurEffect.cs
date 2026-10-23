@@ -44,10 +44,18 @@ public partial class MotionBlurEffect : CompositorEffect
         if (_shader.IsValid) _pipeline = _rd.ComputePipelineCreate(_shader);
     }
 
-    public override void _Notification(int what)
+    /// <summary>
+    /// Frees the compute shader (and with it the pipeline) on the render thread. Called by the camera when it leaves the
+    /// tree: a predelete notification runs only after the rendering device has shut down, which leaks both at exit.
+    /// </summary>
+    public void Release()
     {
-        if (what == NotificationPredelete && _rd != null && _shader.IsValid)
-            _rd.FreeRid(_shader);   // frees the dependent pipeline too
+        if (_rd == null || !_shader.IsValid) return;
+        var rd = _rd;
+        var shader = _shader;
+        _shader = default;
+        _pipeline = default;
+        RenderingServer.CallOnRenderThread(Callable.From(() => rd.FreeRid(shader)));
     }
 
     public override void _RenderCallback(int effectCallbackType, RenderData renderData)

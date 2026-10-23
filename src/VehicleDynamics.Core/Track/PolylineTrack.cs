@@ -19,6 +19,11 @@ public sealed class PolylineTrack : ITrackLine
     public double Length { get; }
     public bool IsClosed => true;
     public int Count => _x.Length;
+    /// <summary>Defining points and edge distances (for caching a computed line).</summary>
+    public IReadOnlyList<double> X => _x;
+    public IReadOnlyList<double> Y => _y;
+    public IReadOnlyList<double> SideLeft => _left;
+    public IReadOnlyList<double> SideRight => _right;
 
     public PolylineTrack(string name, IReadOnlyList<double> x, IReadOnlyList<double> y,
         IReadOnlyList<double>? sideLeft = null, IReadOnlyList<double>? sideRight = null, double defaultHalfWidth = 5)

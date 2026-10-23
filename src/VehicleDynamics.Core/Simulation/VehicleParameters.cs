@@ -96,12 +96,29 @@ public sealed class VehicleParameters
     /// <summary>A1: share of the downforce carried by the front axle (aero balance).</summary>
     public double AeroBalanceFront { get; set; } = 0.4;
     /// <summary>
+    /// Friction multiplier of the rear axle relative to μ (E4 axle grip, RWD traction limit): wider rear tyres. 1 = same
+    /// tyres front and rear (model.m, Mini). F1 2019: 405 mm rear vs 305 mm front tyres → PROVISIONAL estimate.
+    /// </summary>
+    public double RearGripFactor { get; set; } = 1.0;
+    /// <summary>
     /// Driver aid (game assist, not vehicle physics): traction control trims the throttle when the driven axle would use
     /// more than 85–97 % of its friction circle (less while cornering; VehicleDynamics.UpdateTractionControl). Off for the Mini (model.m has none); on by
     /// default for the provisional F1 profile, whose ~700 kW otherwise spins the rear tyres with any steering input on
     /// a keyboard (real 2019 F1 cars have no TC: their drivers meter the throttle).
     /// </summary>
     public bool TractionControl { get; set; } = false;
+    /// <summary>
+    /// Traction control, cornering limit: the share of the driven axle's friction circle drive + lateral may use while
+    /// cornering (0.97 in a straight line, falling to this value). Lower = more lateral reserve on the driven axle, i.e.
+    /// less power oversteer on corner exit (and slower exits).
+    /// </summary>
+    public double TractionControlCornerUsage { get; set; } = 0.85;
+    /// <summary>
+    /// Traction control, stability term: under power the throttle is cut when the yaw rate exceeds the neutral-steer
+    /// yaw rate v tan δ / L by more than this factor (1.10 = 10 % more rotation than neutral steer). Lower = earlier cut,
+    /// more understeer on corner exit.
+    /// </summary>
+    public double TractionControlYawTolerance { get; set; } = 1.10;
 
     // ---- Group 3: extensions (provisional) ----
     /// <summary>E1: steering angle at full input [rad]. PROVISIONAL (seed used 0.06).</summary>
@@ -216,7 +233,7 @@ public sealed class VehicleParameters
             DriveLayout = DriveLayout.RearWheelDrive,
             Mass = mass,
             Cd = 0.75, FrontalArea = 1.5,               // C_d A = 1.13 m²
-            LiftCoefficient = 3.0, AeroBalanceFront = 0.42,   // C_l A = 4.5 m² (L/D = 4), 42 % front
+            LiftCoefficient = 3.0, AeroBalanceFront = 0.38,   // C_l A = 4.5 m² (L/D = 4), 38 % front (rear-biased)
             GearRatios = gears, FinalDrive = finalDrive, EtaT = 0.95,
             TireWidth = 0.305, AspectRatio = 0.541, RimDiameterInch = 13,
             Mu = 1.6,                                   // warm slicks, dry
@@ -231,11 +248,16 @@ public sealed class VehicleParameters
             BrakeMuFactor = 0.8, BrakeMassFactor = 0.03,
             IdleRpm = 4000, FuelCutRpm = 13000, MoneyShiftRpm = 15500,
             ClutchTargetRpm = 9000, ClutchBiteRpm = 9000, ClutchCapacity = 900,
-            EngineInertia = engineInertia, EngineBrakeTorque = 120,
+            // Engine braking: 50 N·m at the crank (estimate). 120 N·m gave 5.9 kN of braking on the rear axle in 1st gear,
+            // enough to saturate it and spin on a lift (teams tune engine-braking maps for exactly this).
+            EngineInertia = engineInertia, EngineBrakeTorque = 50,
             ReverseRatio = 4.0,
             MaxSteerAngle = 0.35,
             YawInertia = 1200,
-            CorneringStiffnessFront = 180000, CorneringStiffnessRear = 260000,
+            // Rear axle: 405 mm rear vs 305 mm front tyres → stiffer and grippier (C_αr, RearGripFactor); rear-biased
+            // downforce (AeroBalanceFront 0.38). Chosen for an understeer margin before throttle (corner-exit study,
+            // docs/validation_report.md §20).
+            CorneringStiffnessFront = 180000, CorneringStiffnessRear = 320000, RearGripFactor = 1.10,
             TyreLoadSensitivity = 0.10, FrontRollStiffnessShare = 0.55,
             TractionControl = true,
         };
@@ -383,7 +405,10 @@ public sealed class VehicleParameters
         if (string.IsNullOrWhiteSpace(Profile)) e.Add("Profile must be set");
         R(nameof(LiftCoefficient), LiftCoefficient, 0, 6);
         R(nameof(AeroBalanceFront), AeroBalanceFront, 0, 1);
-        if (DriveLayout == DriveLayout.RearWheelDrive && Mu * CgHeight / Wheelbase >= 0.9)
+        R(nameof(RearGripFactor), RearGripFactor, 0.5, 1.5);
+        R(nameof(TractionControlCornerUsage), TractionControlCornerUsage, 0.5, 0.97);
+        R(nameof(TractionControlYawTolerance), TractionControlYawTolerance, 1.0, 2.0);
+        if (DriveLayout == DriveLayout.RearWheelDrive && Mu * RearGripFactor * CgHeight / Wheelbase >= 0.9)
             e.Add("RWD traction limit needs μ h / L < 0.9");
         if (SurfaceGripFactor is null || SurfaceGripFactor.Length != 3) e.Add("SurfaceGripFactor must have 3 entries [asphalt, curb, grass]");
         else for (int i = 0; i < 3; i++) R($"SurfaceGripFactor[{i}]", SurfaceGripFactor[i], 0.05, 2);

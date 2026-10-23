@@ -49,13 +49,12 @@ public partial class VehicleSetupPanel : PanelContainer
         vehicleRow.AddChild(UiTheme.Label("Vehicle", 13, UiTheme.Accent));
         _vehicle = new OptionButton { SizeFlagsHorizontal = SizeFlags.ExpandFill, FocusMode = FocusModeEnum.None };
         foreach (var (id, displayName) in VehicleProfiles.All) _vehicle.AddItem(displayName);
-        _vehicle.ItemSelected += i =>
+        _vehicle.ItemSelected += i => _sim.SwitchVehicleAsync(VehicleProfiles.All[(int)i].Id, () =>
         {
-            _sim.SwitchVehicle(VehicleProfiles.All[(int)i].Id);
             _edit = _sim.Vehicle.Parameters.Clone();
             SyncFromEdit();
             _status.Text = "Vehicle: " + VehicleProfiles.DisplayName(_edit.Profile) + " (its default parameters; back on the grid).";
-        };
+        });
         vehicleRow.AddChild(_vehicle);
         outer.AddChild(vehicleRow);
 
@@ -255,7 +254,13 @@ public partial class VehicleSetupPanel : PanelContainer
         var p = _edit;
         var dyn = new VehicleDynamics.Core.Simulation.VehicleDynamics(p);
         string gears = string.Join("  ", Enumerable.Range(1, p.NumGears).Select(g => $"{g}:{dyn.GearMaxSpeedKmh(g):0}"));
+        // Linear-range understeer gradient K = (m_f / C_αf − m_r / C_αr)·g, m_f = M c / L (positive = understeer).
+        double mf = p.Mass * p.CgToRear / p.Wheelbase, mr = p.Mass - mf;
+        double kUs = (mf / p.CorneringStiffnessFront - mr / p.CorneringStiffnessRear) * p.G * 180 / Math.PI;
+        double down200 = Aerodynamics.Downforce(p, 200 / 3.6);
         _derived.Text = string.Create(CultureInfo.InvariantCulture,
+            $"Balance: front weight {100 * p.CgToRear / p.Wheelbase:0.0} % · understeer gradient {kUs:+0.00;-0.00} °/g ({(kUs >= 0 ? "understeer" : "oversteer")}) · " +
+            $"downforce at 200 km/h {down200 / 1000:0.0} kN ({100 * p.AeroBalanceFront:0} % front / {100 * (1 - p.AeroBalanceFront):0} % rear)\n" +
             $"Derived (edited values): R_w = {p.WheelRadius:0.0000} m · K_φf = {p.KPhiFront:0} · K_φr = {p.KPhiRear:0} N·m/rad\n" +
             $"F_x,max (asphalt) = {TractionLimit.FxMax(p, p.Mu):0.0} N · θ = {p.Theta:0.0000} rad\n" +
             $"Gear speed at {p.RpmRaw[^1]:0} rpm [km/h]: {gears}");
@@ -265,9 +270,13 @@ public partial class VehicleSetupPanel : PanelContainer
     {
         try
         {
-            _sim.ApplyParameters(_edit.Clone());
-            _edit = _sim.Vehicle.Parameters.Clone();
-            SyncFromEdit();
+            var p = _edit.Clone();
+            p.EnsureValid();
+            _sim.ChangeVehicleAsync(p, () =>
+            {
+                _edit = _sim.Vehicle.Parameters.Clone();
+                SyncFromEdit();
+            });
         }
         catch (ArgumentException ex)
         {

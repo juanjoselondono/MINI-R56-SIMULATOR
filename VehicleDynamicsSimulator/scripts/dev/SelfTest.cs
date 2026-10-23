@@ -518,15 +518,21 @@ public partial class SelfTest : Node
         GameSession.RacingLineSource = RacingLineSource.Optimised;
         _sim.BuildRacingLine();
         _sim.RestartSimulation();
-        var driver = new CentrelineDriver(_sim.RacingLineTrack);
+        var driver = new CentrelineDriver(_sim.RacingLineTrack) { LookaheadTime = 0.45 };
         V.AutoShift = true;
         V.Autopilot = vc => driver.Drive(vc.Dynamics.State, vc.Dynamics.Outputs, vc.Parameters);
         double maxDown = 0, maxFrontDrive = 0, vMax = 0;
+        string? firstInvalid = null;
         var prevAfter = V.AfterStep;
         V.AfterStep = (d, u) =>
         {
             prevAfter?.Invoke(d, u);
             maxDown = Math.Max(maxDown, d.Outputs.Downforce);
+            if (firstInvalid == null && !_sim.Laps.LapValid)
+            {
+                var (l, r) = _sim.Track.Line.Limits(_sim.Laps.Projection.S);
+                firstInvalid = FormattableString.Invariant($"lap invalid at s={_sim.Laps.Projection.S:0} lat={_sim.Laps.Projection.Lateral:0.00} (limits +{l:0.0}/-{r:0.0}) v={d.State.V * 3.6:0} km/h, line deviation {_sim.RacingLineTrack.Project(d.State.X, d.State.Y).Lateral:0.00} m, TC cut {d.Outputs.TractionControlCut:0.00}, brake {V.LastInputs.Brake:0.00}");
+            }
             vMax = Math.Max(vMax, d.State.V);
             if (d.Outputs.Branch == DriveBranch.Drive) maxFrontDrive = Math.Max(maxFrontDrive, Math.Abs(d.Outputs.FxFront));
         };
@@ -556,10 +562,24 @@ public partial class SelfTest : Node
         var rec = lap ? _sim.Laps.Laps[0] : default;
         int impacts = _sim.Collisions.ImpulseCount - imp0;
         if (!lap || !rec.Valid || impacts > 0) foreach (var t in trace) GD.Print("[selftest] F1 trace " + t);
+        if (firstInvalid != null) GD.Print("[selftest] F1 " + firstInvalid);
         double w = p.Mass * p.G;
         Check("F1 lap on its racing line (RWD, downforce)", lap && rec.Valid && impacts == 0 && (double.IsNaN(_miniCircuitLineLap) || rec.Time < _miniCircuitLineLap) && maxDown > 0.3 * w && maxFrontDrive == 0,
             lap ? $"lap {F(rec.Time, "0.00")} s vs Mini {F(_miniCircuitLineLap, "0.00")} s, valid={rec.Valid}, impacts={impacts}; top {F(vMax * 3.6, "0")} km/h, peak downforce {F(maxDown, "0")} N ({F(maxDown / w, "0.00")} W); front drive force {F(maxFrontDrive)} N"
                 : "no lap within 300 s");
+
+        // In-session swap behind the loading screen (threaded model load, racing line on a worker thread).
+        _sim.SwitchVehicle(VehicleProfiles.MiniR56);
+        await Frames(2);
+        var swapped = new TaskCompletionSource();
+        _sim.SwitchVehicleAsync(VehicleProfiles.F1, () => swapped.TrySetResult());
+        bool overlayShown = _sim.Loading && SceneManager.Instance is { IsLoading: true };
+        int framesWaited = 0;
+        while (!swapped.Task.IsCompleted && framesWaited++ < 3000) await Frames(1);
+        Check("vehicle swap behind the loading screen", overlayShown && swapped.Task.IsCompleted && !_sim.Loading
+                && SceneManager.Instance is { IsLoading: false } && V.Parameters.Profile == VehicleProfiles.F1
+                && V.VisualsNode?.SceneFilePath == V.Visual.VisualScene && D.State.V == 0 && !V.Paused,
+            $"overlay shown {overlayShown}, completed after {framesWaited} frames, profile {V.Parameters.Profile}, car at rest {D.State.V == 0}, running {!V.Paused}");
 
         _sim.SwitchVehicle(VehicleProfiles.MiniR56);
         await Frames(3);

@@ -21,7 +21,8 @@ public static class TractionLimit
         if (p.DriveLayout == DriveLayout.RearWheelDrive)
         {
             double rearLoad = w * (p.Wheelbase - p.CgToRear) / p.Wheelbase + downforce * (1 - p.AeroBalanceFront);
-            return mu * rearLoad / (1 - (p.CgHeight / p.Wheelbase) * mu);
+            double muR = mu * p.RearGripFactor;
+            return muR * rearLoad / (1 - (p.CgHeight / p.Wheelbase) * muR);
         }
         double num = mu * (w * p.CgToRear / p.Wheelbase + downforce * p.AeroBalanceFront);
         double den = 1 + (p.CgHeight / p.Wheelbase) * mu

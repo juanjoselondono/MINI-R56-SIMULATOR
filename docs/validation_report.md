@@ -766,3 +766,42 @@ spin started within 0.25 s. This set the final 85–97 % rule (vehicle_model §2
 
 **Performance** (Monaco, about 1080p, High preset): Mini 7.52 ms GPU, F1 7.44 ms GPU. VRAM is 0.64 GB with the Mini and
 1.58 GB with the F1 (its twelve 4K textures).
+
+## 20. F1 corner exit, cockpit eye, loading screen (2026-10-22)
+
+Unit tests `VehicleDynamics.Tests` **149/149**, `GameLogic.Tests` **11/11**; self-test **53/53** (new: vehicle swap
+behind the loading screen).
+
+**Corner exit** (`F1_CornerExit_StaysInUndersteerWithTractionControl`; instant full throttle from 0.7 μg, steering held):
+
+| Radius | Before the throttle α_r − α_f | Peak r / r_neutral, previous F1 + TC | Now (TC on) | TC off |
+|---|---|---|---|---|
+| 12 m | −0.71° | 1.23 | 0.95 | 70.6 |
+| 40 m | −0.51° | 1.42 | 0.91 | 98.6 |
+| 100 m | −0.45° | 2.04 | 0.82 | 88.7 |
+
+How the cause was found is in vehicle_model §27: the first-50 ms rear saturation, the TC share rule cancelling extra rear
+grip, and the coast-branch engine-braking spin at 12 m.
+
+Consequences:
+- 0–100 km/h: 2.39 s without TC (rear grip 1.10), 3.15 s with TC.
+- F1 scripted lap on the Circuit: 55.63 s, valid, 0 impacts (previous balance: ≈ 59 s).
+
+The scripted driver needed two changes, both to the driver, not the car:
+- its downforce grip term now uses the weaker axle (the driven axle's traction derivative overstated the front-limited
+  F1);
+- its pure-pursuit lookahead is 0.45 s for the F1, because 0.7 s (42 m at 215 km/h) corrected a 1.7 m drift too slowly.
+
+The Mini's driver and lap results are unchanged.
+
+**Loading.** Monaco + F1, RTX 3050, before: one frozen frame of about 9.9 s. Stages: F1 model 2.3 s, track scene 0.7 s,
+collision 0.45 s, racing-line optimisation 6.4 s.
+
+| Start | Total | Longest single frame |
+|---|---|---|
+| First (racing line optimised, then cached) | 11.4 s | 150 ms |
+| Later (racing line from the disk cache) | 5.2 s | 95 ms |
+
+The session's own loads became cache hits (F1 model 7 ms, track scene 0 ms). The previously reported exit-time leak of
+the motion-blur compute shader and pipeline is fixed (they are freed on the render thread when the camera leaves the
+tree).

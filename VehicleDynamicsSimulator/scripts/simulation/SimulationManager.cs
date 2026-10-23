@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.Linq;
+using System.Threading.Tasks;
 using Godot;
 using Simulator.CameraRig;
 using Simulator.Dynamics;
@@ -22,6 +23,11 @@ public static class GameSession
     public static string? ConfigPath { get; set; }
     /// <summary>Vehicle profile to drive (VehicleProfiles id), chosen in the main menu or the setup panel.</summary>
     public static string VehicleProfile { get; set; } = VehicleDynamics.Core.Simulation.VehicleProfiles.MiniR56;
+    /// <summary>
+    /// Set by <see cref="SceneManager.StartSession"/>: the main scene builds its session in stages behind the loading
+    /// screen (racing line on a worker thread). Command-line modes leave it false and load synchronously.
+    /// </summary>
+    public static bool StagedLoad { get; set; }
     /// <summary>Racing-line driver aid shown (L / A / D-pad up); kept across tracks and restarts.</summary>
     public static bool RacingLineVisible { get; set; } = true;
     /// <summary>Where the racing line comes from (setup panel, or -- --racing-line=optimised|reference|&lt;csv&gt;).</summary>
@@ -93,7 +99,9 @@ public partial class SimulationManager : Node
             }
             else Notify($"Configuration not loaded: {err}");
         }
-        if (!configured) Vehicle.ApplyParameters(VehicleProfiles.Create(GameSession.VehicleProfile));
+        if (!configured)
+            using (LoadTimer.Stage("vehicle " + GameSession.VehicleProfile))
+                Vehicle.ApplyParameters(VehicleProfiles.Create(GameSession.VehicleProfile));
         Vehicle.VehicleChanged += OnVehicleChanged;
         var trackArg = OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--track="));
         if (trackArg != null) GameSession.TrackName = trackArg["--track=".Length..];
@@ -103,7 +111,18 @@ public partial class SimulationManager : Node
             GameSession.RacingLineSource = v switch { "optimised" => RacingLineSource.Optimised, "reference" => RacingLineSource.TrackReference, _ => RacingLineSource.RecordedLap };
             if (GameSession.RacingLineSource == RacingLineSource.RecordedLap) GameSession.RacingLineCsv = v;
         }
-        LoadTrack(GameSession.TrackName);
+        if (GameSession.StagedLoad && SceneManager.Instance is { } loader)
+        {
+            // Menu start: the assets are already loaded (SceneManager); build in stages behind the loading screen.
+            GameSession.StagedLoad = false;
+            Loading = true;
+            using (LoadTimer.Stage("track core (staged)")) LoadTrackCore(GameSession.TrackName);
+            EnsureRacingLineNode();
+            FinishTrackLoad();
+            Vehicle.SetPaused(true);
+            _ = CompleteStagedLoadAsync(loader);
+        }
+        else using (LoadTimer.Stage("session total (track + line)")) LoadTrack(GameSession.TrackName);
 
         Input.JoyConnectionChanged += OnJoyConnectionChanged;
         foreach (int id in Input.GetConnectedJoypads()) OnJoyConnectionChanged(id, true);
@@ -115,15 +134,42 @@ public partial class SimulationManager : Node
         if (args.Contains("--demo"))
         {
             // Scripted centreline driver through the normal input path (screenshots / attract mode).
-            var driver = new Dev.CentrelineDriver(RacingLineTrack);
+            var driver = new Dev.CentrelineDriver(RacingLineTrack)
+            {
+                LookaheadTime = Vehicle.Parameters.Profile == VehicleProfiles.F1 ? 0.45 : 0.7,
+            };
             Vehicle.AutoShift = true;
             Vehicle.Autopilot = vc => driver.Drive(vc.Dynamics.State, vc.Dynamics.Outputs, vc.Parameters);
         }
     }
 
+    /// <summary>True while a session or vehicle change is being built behind the loading screen (input ignored).</summary>
+    public bool Loading { get; private set; }
+
+    private async Task CompleteStagedLoadAsync(SceneManager loader)
+    {
+        loader.Report(0.80, "Racing line");
+        await loader.NextFrame();
+        await BuildRacingLineAsync(f => loader.ReportFromWorker(0.80 + 0.18 * f,
+            "Optimising the racing line (first time for this track and car; cached afterwards)"));
+        RestartSimulation();
+        Vehicle.SetPaused(false);
+        Loading = false;
+        loader.Finish();
+    }
+
+    /// <summary>Synchronous track load (command-line modes, self-test): core, racing line, spawn.</summary>
     public void LoadTrack(string name)
     {
-        Track.LoadTrack(name);
+        LoadTrackCore(name);
+        BuildRacingLine();
+        FinishTrackLoad();
+    }
+
+    /// <summary>Track scene, collisions, lap timer and the per-step hooks (everything but the racing line).</summary>
+    private void LoadTrackCore(string name)
+    {
+        using (LoadTimer.Stage("track " + name)) Track.LoadTrack(name);
         GameSession.TrackName = name;
         Collisions = Track.Mesh is { } meshTrack
             ? new CollisionManager(meshTrack.WallContact)
@@ -192,8 +238,10 @@ public partial class SimulationManager : Node
             Telemetry.OnStep(d.State, d.Outputs, u, CurrentTrackSample(), Vehicle.Loop.Clock.FixedDt);
         };
         Vehicle.TrackContext = _ => CurrentTrackSample();
+    }
 
-        BuildRacingLine();
+    private void FinishTrackLoad()
+    {
         var (x, y, psi) = Track.SpawnPose;
         Vehicle.SetSpawn(x, y, psi);
         RestartSimulation();
@@ -209,22 +257,58 @@ public partial class SimulationManager : Node
 
     private static readonly System.Collections.Generic.Dictionary<string, ITrackLine> OptimisedCache = new();
 
-    /// <summary>Re-reads the racing-line source (GameSession) and rebuilds the line and its colours.</summary>
+    private void EnsureRacingLineNode()
+    {
+        if (RacingLine != null) return;
+        RacingLine = new RacingLine { Name = "RacingLine" };
+        AddChild(RacingLine);
+    }
+
+    /// <summary>Re-reads the racing-line source (GameSession) and rebuilds the line and its colours (synchronous).</summary>
     public void BuildRacingLine()
     {
-        if (RacingLine == null)
+        EnsureRacingLineNode();
+        var line = ResolveNonOptimised(out string info);
+        if (line == null)
         {
-            RacingLine = new RacingLine { Name = "RacingLine" };
-            AddChild(RacingLine);
+            var prep = PrepareOptimised();
+            line = prep.Line ?? StoreOptimised(prep, Optimise(prep, null));
+            info = "minimum-curvature line";
         }
-        RacingLineTrack = ResolveRacingLine(out string info);
+        ShowRacingLine(line, info);
+    }
+
+    /// <summary>Same, with the optimisation (if it is not cached) on a worker thread; <paramref name="progress"/> is called there.</summary>
+    public async Task BuildRacingLineAsync(Action<double>? progress)
+    {
+        EnsureRacingLineNode();
+        var line = ResolveNonOptimised(out string info);
+        if (line == null)
+        {
+            var prep = PrepareOptimised();
+            if (prep.Line != null) line = prep.Line;
+            else
+            {
+                var computed = await Task.Run(() => Optimise(prep, progress));
+                line = StoreOptimised(prep, computed);
+            }
+            info = "minimum-curvature line";
+        }
+        ShowRacingLine(line, info);
+    }
+
+    private void ShowRacingLine(ITrackLine line, string info)
+    {
+        RacingLineTrack = line;
         RacingLineInfo = info;
-        RacingLine.Build(RacingLineTrack, Vehicle.Parameters, Track.Mesh);
+        using (LoadTimer.Stage("racing line: heights + reference lap + mesh")) RacingLine.Build(RacingLineTrack, Vehicle.Parameters, Track.Mesh);
         RacingLine.Visible = GameSession.RacingLineVisible;
     }
 
-    private ITrackLine ResolveRacingLine(out string info)
+    /// <summary>The recorded-lap or track-reference line, or null when the optimised line is wanted.</summary>
+    private ITrackLine? ResolveNonOptimised(out string info)
     {
+        info = "";
         if (GameSession.RacingLineSource == RacingLineSource.RecordedLap && GameSession.RacingLineCsv is { } csv)
         {
             try
@@ -243,17 +327,44 @@ public partial class SimulationManager : Node
             info = Track.Mesh != null ? "Assetto Corsa AI line" : "track centreline";
             return Track.Line;
         }
+        return null;
+    }
+
+    private sealed record OptimisedRequest(ITrackLine? Line, ITrackLine Corridor, double Margin, string MemoryKey, string DiskKey);
+
+    /// <summary>
+    /// Main thread: margin, corridor (mesh tracks: raycasts to the walls) and the cache lookups (memory, then disk).
+    /// Line is set when no optimisation is needed.
+    /// </summary>
+    private OptimisedRequest PrepareOptimised()
+    {
         // Margin from the limits to the CG line: half the car's width plus 0.36 m of clearance (Mini 1.20 m, F1 1.36 m).
         double margin = Vehicle.Visual.HalfWidth + 0.36;
-        string key = FormattableString.Invariant($"{Track.TrackName}|{margin:F2}");
-        if (!OptimisedCache.TryGetValue(key, out var line))
+        string memoryKey = FormattableString.Invariant($"{Track.TrackName}|{margin:F2}");
+        if (OptimisedCache.TryGetValue(memoryKey, out var cached)) return new OptimisedRequest(cached, Track.Line, margin, memoryKey, "");
+        ITrackLine corridor;
+        using (LoadTimer.Stage("racing line: wall corridor")) corridor = Track.Mesh?.WallBoundedCorridor() ?? Track.Line;
+        string diskKey = RacingLineCache.Key(Track.TrackName, margin, corridor);
+        if (RacingLineCache.TryLoad(diskKey, Track.Line.Name + " (racing line)", out var fromDisk))
         {
-            // Mesh tracks: optimise inside the wall-bounded corridor, not the bare AC edges.
-            ITrackLine corridor = Track.Mesh?.WallBoundedCorridor() ?? Track.Line;
-            line = RacingLineOptimizer.MinimumCurvature(corridor, margin: margin).Line;
-            OptimisedCache[key] = line;
+            GD.Print("[load] racing line: from disk cache " + diskKey);
+            OptimisedCache[memoryKey] = fromDisk;
+            return new OptimisedRequest(fromDisk, corridor, margin, memoryKey, diskKey);
         }
-        info = "minimum-curvature line";
+        return new OptimisedRequest(null, corridor, margin, memoryKey, diskKey);
+    }
+
+    /// <summary>Pure computation (any thread).</summary>
+    private static PolylineTrack Optimise(OptimisedRequest r, Action<double>? progress)
+    {
+        using (LoadTimer.Stage("racing line: minimum-curvature optimiser"))
+            return RacingLineOptimizer.MinimumCurvature(r.Corridor, margin: r.Margin, progress: progress).Line;
+    }
+
+    private ITrackLine StoreOptimised(OptimisedRequest r, PolylineTrack line)
+    {
+        OptimisedCache[r.MemoryKey] = line;
+        RacingLineCache.Save(r.DiskKey, line);
         return line;
     }
 
@@ -331,6 +442,46 @@ public partial class SimulationManager : Node
         ApplyParameters(VehicleProfiles.Create(profileId));
     }
 
+    /// <summary>
+    /// Change of car during a session behind the loading screen: the vehicle model loads on Godot's loader threads, the
+    /// racing line (new car width) is optimised on a worker thread unless cached, then back to the grid.
+    /// <paramref name="done"/> runs afterwards on the main thread. Without the SceneManager autoload: synchronous.
+    /// </summary>
+    public async void ChangeVehicleAsync(VehicleParameters p, Action? done = null)
+    {
+        if (Loading) return;
+        var loader = SceneManager.Instance;
+        if (loader == null || p.Profile == Vehicle.Parameters.Profile)
+        {
+            ApplyParameters(p);
+            done?.Invoke();
+            return;
+        }
+        Loading = true;
+        loader.Show($"{Track.TrackName}  ·  {VehicleProfiles.DisplayName(p.Profile)}");
+        await loader.NextFrame();
+        if (!await loader.LoadThreaded(new[] { VehicleCatalog.Get(p.Profile).VisualScene }, 0, 0.6, "Loading the vehicle model"))
+        {
+            Loading = false;
+            return;
+        }
+        loader.Report(0.62, "Vehicle setup");
+        await loader.NextFrame();
+        if (Telemetry.Recording) Telemetry.Stop(Vehicle);
+        Vehicle.ApplyParameters(p);
+        Vehicle.SetPaused(true);
+        await BuildRacingLineAsync(f => loader.ReportFromWorker(0.65 + 0.33 * f,
+            "Optimising the racing line (first time for this track and car; cached afterwards)"));
+        RestartSimulation();
+        Vehicle.SetPaused(false);
+        Loading = false;
+        loader.Finish();
+        Notify("Vehicle: " + VehicleProfiles.DisplayName(p.Profile));
+        done?.Invoke();
+    }
+
+    public void SwitchVehicleAsync(string profileId, Action? done = null) => ChangeVehicleAsync(VehicleProfiles.Create(profileId), done);
+
     /// <summary>Collision footprint of the current car (asset-pipeline AABB).</summary>
     private void ConfigureCollisions()
     {
@@ -393,6 +544,7 @@ public partial class SimulationManager : Node
 
     public override void _Process(double delta)
     {
+        if (Loading) return;
         if (UiFocus.IsTyping(GetViewport())) return;
         if (Input.IsActionJustPressed(InputSetup.ResetVehicle)) RestartSimulation();
         if (Input.IsActionJustPressed(InputSetup.Recover)) RecoverToTrack();

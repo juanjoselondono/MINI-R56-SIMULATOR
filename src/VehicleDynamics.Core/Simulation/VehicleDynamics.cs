@@ -127,7 +127,23 @@ public sealed class VehicleDynamics
 
         // Driver aid (not vehicle physics): traction control scales the driver's throttle by the cut found so far.
         var ue = u;
-        if (_p.TractionControl) ue.Throttle = Math.Clamp(u.Throttle, 0, 1) * (1 - s.TcCut);
+        if (_p.TractionControl)
+        {
+            ue.Throttle = Math.Clamp(u.Throttle, 0, 1) * (1 - s.TcCut);
+            // Feedforward (clutch locked): the drive force is proportional to the throttle, so cap the throttle at what
+            // the driven axle can take before applying it. Without this a trigger snap saturates the rear axle for the
+            // ~50 ms the feedback needs, and the car flicks into oversteer.
+            var prev = Outputs;
+            if (Dynamic && prev.ClutchLocked && prev.EngineTorque > 1 && !s.EngineBlown && !s.TransmissionDamaged)
+            {
+                double perThrottle = prev.EngineTorque * TotalRatio(s.Gear) * _p.EtaT / _p.WheelRadius;
+                ue.Throttle = Math.Min(ue.Throttle, TractionCapacity(prev) / perThrottle);
+            }
+            // A cut never turns a throttle press into the coast branch: that would add engine braking on the driven axle
+            // exactly when it has no grip to spare (measured: 5.9 kN on the F1's rear in 1st → spin).
+            if (u.Throttle > _p.ThrottleInputThreshold)
+                ue.Throttle = Math.Max(ue.Throttle, _p.ThrottleInputThreshold * 1.01);
+        }
         var o = Evaluate(s, ue);
         o.ThrottleApplied = Math.Clamp(ue.Throttle, 0, 1);
         o.EngineBlownThisStep = blownNow;
@@ -158,14 +174,31 @@ public sealed class VehicleDynamics
     /// 10/s per unit of spare capacity. A feedback loop rather than a direct inverse, because with the E5 launch clutch
     /// slipping the drive force follows the engine speed, not the throttle.
     /// </summary>
-    private void UpdateTractionControl(ref VehicleState s, in VehicleOutputs o, double dt)
+    /// <summary>Drive force the driven axle may take: √((u g)² − F_y²), u from 0.97 (straight) to the cornering limit.</summary>
+    private double TractionCapacity(in VehicleOutputs o)
     {
+        if (!Dynamic) return 0.97 * o.FxMax;
         bool rwd = _p.DriveLayout == DriveLayout.RearWheelDrive;
         double g = rwd ? o.GripRear : o.GripFront, fy = Math.Abs(rwd ? o.FyRear : o.FyFront);
-        double usage = g > 0 ? Math.Max(0.85, 0.97 - 0.3 * fy / g) : 0.85;   // straight 0.97 … cornering 0.85
-        double capacity = Dynamic ? Math.Sqrt(Math.Max(0, Sq(usage * g) - Sq(fy))) : 0.97 * o.FxMax;
+        double floor = _p.TractionControlCornerUsage;
+        // straight 0.97, falling linearly to the cornering limit at 40 % lateral use of the axle
+        double usage = g > 0 ? Math.Max(floor, 0.97 - (0.97 - floor) * fy / (0.4 * g)) : floor;
+        return Math.Sqrt(Math.Max(0, Sq(usage * g) - Sq(fy)));
+    }
+
+    private void UpdateTractionControl(ref VehicleState s, in VehicleOutputs o, double dt)
+    {
+        double capacity = TractionCapacity(o);
         double demand = o.Branch == DriveBranch.Drive ? Math.Abs(o.FTractive) : 0;
         double excess = capacity > 1e-6 ? demand / capacity - 1 : (demand > 0 ? 1 : -1);
+        // Stability term: under power, a yaw rate above the neutral-steer value v tan δ / L by more than the tolerance
+        // is oversteer the friction-circle rule cannot see; it raises the cut in proportion.
+        if (Dynamic && demand > 0 && s.V > 3)
+        {
+            double rNeutral = s.V * Math.Tan(o.SteerAngle) / _p.Wheelbase;
+            if (Math.Abs(rNeutral) > 0.03 && Math.Sign(s.YawRate) == Math.Sign(rNeutral))
+                excess = Math.Max(excess, 4 * (Math.Abs(s.YawRate) / Math.Abs(rNeutral) - _p.TractionControlYawTolerance));
+        }
         s.TcCut = excess > 0
             ? Math.Min(0.95, s.TcCut + 12 * dt * Math.Min(excess, 2))
             : Math.Max(0, s.TcCut - dt * (2 + 10 * Math.Min(-excess, 1)));
@@ -677,7 +710,7 @@ public sealed class VehicleDynamics
         o.FzRear = fzR;
         double lateralTransfer = m * Math.Abs(s.AyPrev) * p.CgHeight;
         double gF = AxleGrip(p, muEff, fzF, lateralTransfer * p.FrontRollStiffnessShare / p.TrackFront, w / 4);
-        double gR = AxleGrip(p, muEff, fzR, lateralTransfer * (1 - p.FrontRollStiffnessShare) / p.TrackRear, w / 4);
+        double gR = AxleGrip(p, muEff * p.RearGripFactor, fzR, lateralTransfer * (1 - p.FrontRollStiffnessShare) / p.TrackRear, w / 4);
 
         // Longitudinal (model.m branches) and the per-axle tyre forces they imply.
         double fxF = 0, fxR = 0, lonDemand = 0;

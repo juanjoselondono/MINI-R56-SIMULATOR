@@ -30,6 +30,7 @@ public partial class PerfProbe : Node
 
     public override void _Process(double delta)
     {
+        if (_sim.Loading) return;   // measure the session, not the loading screen
         _frames++;
         if (_frames <= 120) return;
         _sumFrame += delta;
