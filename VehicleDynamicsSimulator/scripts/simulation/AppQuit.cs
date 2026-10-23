@@ -16,6 +16,10 @@ public static class AppQuit
             if (n is Audio.EngineAudio engine) engine.Shutdown();
             else if (n is AudioStreamPlayer p) p.Stop();
         }
+        // Release unreachable Godot objects (textures, shapes) now, while the engine still runs its frames: left to the
+        // .NET finalizers during shutdown they free GPU resources from the wrong thread ("free_rid … render thread").
+        System.GC.Collect();
+        System.GC.WaitForPendingFinalizers();
         // The audio thread releases stopped playbacks on its own schedule: give it ~0.25 s of real time.
         ulong until = Time.GetTicksMsec() + 250;
         while (Time.GetTicksMsec() < until) await from.ToSignal(tree, SceneTree.SignalName.ProcessFrame);

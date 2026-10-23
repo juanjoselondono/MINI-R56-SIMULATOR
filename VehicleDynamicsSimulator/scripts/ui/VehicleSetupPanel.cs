@@ -11,7 +11,9 @@ namespace Simulator.UI;
 
 /// <summary>
 /// Vehicle setup: edits a working copy of <see cref="VehicleParameters"/>; nothing reaches the physics until Apply,
-/// which goes through <see cref="SimulationManager.ApplyParameters"/> (validated, between physics steps).
+/// which goes through <see cref="SimulationManager.ApplyParameters"/> (validated, between physics steps) and saves the
+/// result as that car's own setup (setup_mini.json / setup_f1.json, <see cref="VehicleSetupStore"/>). Rows, named
+/// setups and saves are all per vehicle: only the parameters that act on the current car are shown.
 /// </summary>
 public partial class VehicleSetupPanel : PanelContainer
 {
@@ -53,7 +55,8 @@ public partial class VehicleSetupPanel : PanelContainer
         {
             _edit = _sim.Vehicle.Parameters.Clone();
             SyncFromEdit();
-            _status.Text = "Vehicle: " + VehicleProfiles.DisplayName(_edit.Profile) + " (its default parameters; back on the grid).";
+            RefreshConfigList();
+            _status.Text = "Vehicle: " + VehicleProfiles.DisplayName(_edit.Profile) + " (its own saved setup; back on the grid).";
         });
         vehicleRow.AddChild(_vehicle);
         outer.AddChild(vehicleRow);
@@ -73,12 +76,12 @@ public partial class VehicleSetupPanel : PanelContainer
         _saveName = new LineEdit { PlaceholderText = "config name", SizeFlagsHorizontal = SizeFlags.ExpandFill };
         _saveName.TextSubmitted += _ => { SaveConfig(); _saveName.ReleaseFocus(); };
         cfgRow.AddChild(_saveName);
-        cfgRow.AddChild(UiTheme.Button("Save Configuration", SaveConfig, "Saves the APPLIED parameters as JSON"));
+        cfgRow.AddChild(UiTheme.Button("Save Configuration", SaveConfig, "Saves the APPLIED parameters as a named setup of this car (its own folder)"));
         outer.AddChild(cfgRow);
         var loadRow = new HBoxContainer();
         _configs = new OptionButton { SizeFlagsHorizontal = SizeFlags.ExpandFill, FocusMode = FocusModeEnum.None };
         loadRow.AddChild(_configs);
-        loadRow.AddChild(UiTheme.Button("Load Configuration", LoadConfig, "Loads into the editor; press Apply to use it"));
+        loadRow.AddChild(UiTheme.Button("Load Configuration", LoadConfig, "Loads one of this car's named setups into the editor; press Apply to use it"));
         loadRow.AddChild(UiTheme.Button("⟳", RefreshConfigList, "Rescan the configuration folder"));
         outer.AddChild(loadRow);
 
@@ -257,9 +260,11 @@ public partial class VehicleSetupPanel : PanelContainer
         // Linear-range understeer gradient K = (m_f / C_αf − m_r / C_αr)·g, m_f = M c / L (positive = understeer).
         double mf = p.Mass * p.CgToRear / p.Wheelbase, mr = p.Mass - mf;
         double kUs = (mf / p.CorneringStiffnessFront - mr / p.CorneringStiffnessRear) * p.G * 180 / Math.PI;
+        kUs = Math.Round(kUs, 2) + 0.0;   // + 0.0: no "-0.00"
+        string balance = kUs > 0 ? "understeer" : kUs < 0 ? "oversteer" : "neutral";
         double down200 = Aerodynamics.Downforce(p, 200 / 3.6);
         _derived.Text = string.Create(CultureInfo.InvariantCulture,
-            $"Balance: front weight {100 * p.CgToRear / p.Wheelbase:0.0} % · understeer gradient {kUs:+0.00;-0.00} °/g ({(kUs >= 0 ? "understeer" : "oversteer")}) · " +
+            $"Balance: front weight {100 * p.CgToRear / p.Wheelbase:0.0} % · understeer gradient {kUs:+0.00;-0.00;0.00} °/g ({balance}) · " +
             $"downforce at 200 km/h {down200 / 1000:0.0} kN ({100 * p.AeroBalanceFront:0} % front / {100 * (1 - p.AeroBalanceFront):0} % rear)\n" +
             $"Derived (edited values): R_w = {p.WheelRadius:0.0000} m · K_φf = {p.KPhiFront:0} · K_φr = {p.KPhiRear:0} N·m/rad\n" +
             $"F_x,max (asphalt) = {TractionLimit.FxMax(p, p.Mu):0.0} N · θ = {p.Theta:0.0000} rad\n" +
@@ -276,6 +281,11 @@ public partial class VehicleSetupPanel : PanelContainer
             {
                 _edit = _sim.Vehicle.Parameters.Clone();
                 SyncFromEdit();
+                if (_sim.SaveCurrentSetup() is { } saved)
+                {
+                    _status.Text = "Applied and saved as this car's setup: " + saved;
+                    _status.AddThemeColorOverride("font_color", UiTheme.Good);
+                }
             });
         }
         catch (ArgumentException ex)
@@ -288,11 +298,9 @@ public partial class VehicleSetupPanel : PanelContainer
     private void SaveConfig()
     {
         string name = string.IsNullOrWhiteSpace(_saveName.Text) ? $"setup_{DateTime.Now:yyyyMMdd_HHmmss}" : _saveName.Text.Trim();
-        foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
-        string path = Path.Combine(SimulationManager.ConfigsDirectory, name + ".json");
         try
         {
-            ConfigSerializer.Save(_sim.Vehicle.Parameters, path);
+            string path = SimulationManager.Setups.SaveNamed(_sim.Vehicle.Parameters, name);
             _status.Text = "Saved applied parameters to " + path;
             _status.AddThemeColorOverride("font_color", UiTheme.Good);
             RefreshConfigList();
@@ -307,25 +315,25 @@ public partial class VehicleSetupPanel : PanelContainer
     private void RefreshConfigList()
     {
         _configs.Clear();
-        if (!Directory.Exists(SimulationManager.ConfigsDirectory)) return;
-        foreach (var f in Directory.GetFiles(SimulationManager.ConfigsDirectory, "*.json").OrderBy(f => f))
-            _configs.AddItem(Path.GetFileName(f));
+        foreach (var name in SimulationManager.Setups.ListNamed(_sim.Vehicle.Parameters.Profile)) _configs.AddItem(name);
     }
 
     private void LoadConfig()
     {
         if (_configs.Selected < 0) { _status.Text = "No configuration selected."; return; }
-        string path = Path.Combine(SimulationManager.ConfigsDirectory, _configs.GetItemText(_configs.Selected));
-        if (ConfigSerializer.TryLoad(path, out var p, out var err))
+        var store = SimulationManager.Setups;
+        string profile = _sim.Vehicle.Parameters.Profile;
+        string path = store.NamedPath(profile, _configs.GetItemText(_configs.Selected));
+        try
         {
-            _edit = p!;
+            _edit = VehicleSetupStore.LoadFor(profile, path);
             SyncFromEdit();
             _status.Text = $"Loaded {path} into the editor — press Apply Setup to use it.";
             _status.AddThemeColorOverride("font_color", UiTheme.Accent);
         }
-        else
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
         {
-            _status.Text = "Load failed: " + err;
+            _status.Text = "Load failed: " + ex.Message;
             _status.AddThemeColorOverride("font_color", UiTheme.Bad);
         }
     }

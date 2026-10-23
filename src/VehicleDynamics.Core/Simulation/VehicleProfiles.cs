@@ -25,4 +25,14 @@ public static class VehicleProfiles
     };
 
     public static string DisplayName(string id) => All.FirstOrDefault(p => p.Id == id).DisplayName ?? id;
+
+    public static bool IsKnown(string id) => All.Any(p => p.Id == id);
+
+    /// <summary>Short key of the profile's setup files (<see cref="VehicleSetupStore"/>): setup_mini.json, setup_f1.json.</summary>
+    public static string SetupKey(string id) => id switch
+    {
+        MiniR56 => "mini",
+        F1 => "f1",
+        _ => throw new ArgumentException($"Unknown vehicle profile '{id}'."),
+    };
 }

@@ -1,4 +1,4 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/LoadingScreen.cs" id="1_ls"]
 
@@ -15,6 +15,9 @@ corner_radius_top_left = 4
 corner_radius_top_right = 4
 corner_radius_bottom_right = 4
 corner_radius_bottom_left = 4
+
+[sub_resource type="FontVariation" id="Credit_font"]
+spacing_glyph = 1
 
 [node name="LoadingScreen" type="Control"]
 layout_mode = 3
@@ -87,3 +90,33 @@ layout_mode = 2
 theme_override_styles/background = SubResource("Bar_bg")
 theme_override_styles/fill = SubResource("Bar_fill")
 max_value = 100.0
+
+[node name="Credit" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -460.0
+offset_top = 32.0
+offset_right = -48.0
+offset_bottom = 58.0
+grow_horizontal = 0
+mouse_filter = 2
+theme_override_constants/separation = 10
+alignment = 2
+
+[node name="Accent" type="ColorRect" parent="Credit"]
+custom_minimum_size = Vector2(3, 0)
+layout_mode = 2
+mouse_filter = 2
+color = Color(0.98, 0.55, 0.12, 1)
+
+[node name="Label" type="Label" parent="Credit"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.94, 0.95, 0.97, 0.9)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.6)
+theme_override_constants/shadow_offset_x = 0
+theme_override_constants/shadow_offset_y = 1
+theme_override_fonts/font = SubResource("Credit_font")
+theme_override_font_sizes/font_size = 16
+text = "Developed by Juan José Londoño"

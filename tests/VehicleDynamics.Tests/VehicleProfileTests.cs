@@ -202,6 +202,90 @@ public class VehicleProfileTests
         return (peak, pre);
     }
 
+    /// <summary>
+    /// Corner entry (trail braking): steady cornering on radius R at a share of μg as in <see cref="CornerExit"/>, then
+    /// the brake at <paramref name="brake"/> for 0.8 s with the steering held (no correction), then the brake released
+    /// to a speed-holding throttle for 2 s, steering still held. Returns the peak yaw rate over the neutral-steer yaw rate
+    /// while braking (&lt; 1 = the car runs wide, "plows"; &gt; 1 = it rotates), the peak body slip angle |β| over both
+    /// phases, and |β| at the end (recovered when small).
+    /// </summary>
+    private static (double YawRatio, double PeakBetaDeg, double EndBetaDeg, double SatRatio) CornerEntry(VehicleParameters p, double radius, double ayShare, double brake)
+    {
+        var d = new Dyn(p);
+        // ayShare of the grip including downforce: v²/R = f μ (g + k v²).
+        double k = Aerodynamics.SpecificCoefficient(p);
+        double v0 = Math.Sqrt(ayShare * p.Mu * p.G / (1 / radius - ayShare * p.Mu * k));
+        var s = Moving(v0, d.AutoGear(v0));
+        s.YawRate = v0 / radius;
+        d.State = s;
+        double delta = Math.Atan(p.Wheelbase / radius);
+        var u = new VehicleInputs { AutoShift = true };
+        for (int i = 0; i < 4 / p.Dt; i++)
+        {
+            delta += 2 * (d.State.V / radius - d.State.YawRate) * p.Dt;
+            u.SteerAngle = Math.Clamp(delta, -p.MaxSteerAngle, p.MaxSteerAngle);
+            u.Throttle = Math.Clamp(0.3 + 0.5 * (v0 - d.State.V), 0, 1);
+            d.Step(u, p.Dt);
+        }
+        double peak = 0, beta = 0, sat = 0;
+        u.Throttle = 0;
+        u.Brake = brake;
+        for (int i = 0; i < 0.8 / p.Dt; i++)
+        {
+            d.Step(u, p.Dt);
+            if (i == (int)(0.3 / p.Dt)) sat = SaturationSlip(p, d.Outputs, rear: true) / SaturationSlip(p, d.Outputs, rear: false);
+            double rNeutral = d.State.V * Math.Tan(Math.Abs(d.Outputs.SteerAngle)) / p.Wheelbase;
+            if (rNeutral > 0.05) peak = Math.Max(peak, Math.Abs(d.State.YawRate) / rNeutral);
+            beta = Math.Max(beta, Math.Abs(d.Outputs.Beta));
+        }
+        u.Brake = 0;
+        double v1 = d.State.V;
+        for (int i = 0; i < 2 / p.Dt; i++)
+        {
+            u.Throttle = Math.Clamp(0.3 + 0.5 * (v1 - d.State.V), 0, 1);
+            d.Step(u, p.Dt);
+            beta = Math.Max(beta, Math.Abs(d.Outputs.Beta));
+        }
+        return (peak, beta * 180 / Math.PI, Math.Abs(d.Outputs.Beta) * 180 / Math.PI, sat);
+    }
+
+    /// <summary>Slip angle where an axle's linear force C_α α reaches what its friction circle leaves laterally, F_y,max / C_α.</summary>
+    private static double SaturationSlip(VehicleParameters p, VehicleOutputs o, bool rear)
+    {
+        double g = rear ? o.GripRear : o.GripFront, fx = rear ? o.FxRear : o.FxFront;
+        return Math.Sqrt(Math.Max(0, g * g - fx * fx)) / (rear ? p.CorneringStiffnessRear : p.CorneringStiffnessFront);
+    }
+
+    [Fact]
+    public void F1_CornerEntry_RotatesSlightlyUnderTrailBraking_AndRecovers()
+    {
+        foreach (double radius in new[] { 50.0, 150.0 })
+        {
+            var p = VehicleParameters.F1Provisional();
+            foreach (double b in new[] { 0.3, 0.6 })
+            {
+                var (ratio, beta, end, sat) = CornerEntry(p, radius, 0.85, b);
+                _out.WriteLine($"R {radius} m at 0.85 grip, brake {b}: peak r / r_neutral {ratio:F2}, α*_r/α*_f {sat:F2}, peak β {beta:F1}°, β after release {end:F1}°");
+                Assert.InRange(ratio, 1.0, 1.4);   // rotates a little on entry (no plowing) ...
+                Assert.True(sat < 1);               // ... because the rear reaches its saturation slip angle first
+                Assert.True(beta < 4);              // a small slide, not a spin
+                Assert.True(end < 1.5);             // and it settles once the brake is released
+            }
+            var (full, betaFull, _, _) = CornerEntry(p, radius, 0.85, 1.0);
+            _out.WriteLine($"R {radius} m, full brake: peak r / r_neutral {full:F2}, peak β {betaFull:F1}°");
+            Assert.InRange(full, 0.9, 1.1);         // a stamped (keyboard) brake neither plows nor spins
+            Assert.True(betaFull < 4);
+
+            // The previous setup (C_α 180k/320k, 38 % front downforce, load-proportional brakes) plowed at speed.
+            var old = VehicleParameters.F1Provisional();
+            old.CorneringStiffnessFront = 180000; old.CorneringStiffnessRear = 320000;
+            old.AeroBalanceFront = 0.38; old.BrakeBiasFront = 0;
+            var (oldRatio, _, _, _) = CornerEntry(old, radius, 0.85, 0.6);
+            _out.WriteLine($"R {radius} m, previous setup: peak r / r_neutral {oldRatio:F2}");
+            Assert.True(oldRatio < 0.9);
+        }
+    }
+
     [Fact]
     public void F1_CornerExit_StaysInUndersteerWithTractionControl()
     {
@@ -213,7 +297,7 @@ public class VehicleProfileTests
             var (ratioOff, _) = CornerExit(raw, radius, 0.7);
             _out.WriteLine($"R {radius} m at 0.7 μg: before throttle α_r − α_f = {pre:F2}°; full-throttle exit peak r / r_neutral = {ratio:F2} (TC off: {ratioOff:F1})");
             Assert.True(pre < 0);            // steady state: understeer margin
-            Assert.True(ratio <= 1.0);       // power exit with TC: never rotates faster than neutral steer
+            Assert.True(ratio <= 1.05);      // power exit with TC: at most marginally faster than neutral steer
             Assert.True(ratioOff > 5);       // the raw chassis still spins under full power (no TC on real 2019 cars)
         }
     }

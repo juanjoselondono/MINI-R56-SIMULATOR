@@ -54,7 +54,7 @@ public partial class MainMenu : Control
                 Text = displayName, ToggleMode = true, ButtonGroup = group, FocusMode = FocusModeEnum.None,
                 ButtonPressed = id == GameSession.VehicleProfile, CustomMinimumSize = new Vector2(305, 40),
             };
-            b.Toggled += on => { if (on) { GameSession.VehicleProfile = id; Validate(); } };
+            b.Toggled += on => { if (on) { GameSession.VehicleProfile = id; RefreshConfigs(); } };
             vehicles.AddChild(b);
         }
         v.AddChild(vehicles);
@@ -75,46 +75,89 @@ public partial class MainMenu : Control
             v.AddChild(b);
         }
 
-        v.AddChild(UiTheme.Label("VEHICLE CONFIGURATION", 14, UiTheme.Accent));
+        v.AddChild(UiTheme.Label("VEHICLE SETUP", 14, UiTheme.Accent));
         _config = new OptionButton { CustomMinimumSize = new Vector2(620, 36), FocusMode = FocusModeEnum.None };
-        _config.AddItem("Vehicle profile defaults");
-        string dir = SimulationManager.ConfigsDirectory;
-        if (Directory.Exists(dir))
-            foreach (var f in Directory.GetFiles(dir, "*.json").OrderBy(f => f)) _config.AddItem(Path.GetFileName(f));
         _config.ItemSelected += _ => Validate();
+        string dir = SimulationManager.ConfigsDirectory;
         v.AddChild(_config);
         _info = UiTheme.Label("", 12, UiTheme.Muted);
         v.AddChild(_info);
-        v.AddChild(UiTheme.Label($"Configurations: {dir}\nTelemetry exports: {SimulationManager.RunsDirectory}", 12, UiTheme.Muted));
+        v.AddChild(UiTheme.Label($"Setups (one file and folder per car): {dir}\nTelemetry exports: {SimulationManager.RunsDirectory}", 12, UiTheme.Muted));
         v.AddChild(UiTheme.Button("Quit", () => GetTree().Quit()));
 
         var centre = new CenterContainer();
         centre.SetAnchorsPreset(LayoutPreset.FullRect);
         centre.AddChild(v);
         AddChild(centre);
+        var credit = UiTheme.Credit();
+        AddChild(credit);
+        credit.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomRight, LayoutPresetMode.Minsize, 32);
+        credit.GrowHorizontal = GrowDirection.Begin;
+        credit.GrowVertical = GrowDirection.Begin;
+        RefreshConfigs();
+
+        // Dev: `-- --menu-shot=PATH` saves the menu as PNG and quits (docs screenshots).
+        if (args.FirstOrDefault(a => a.StartsWith("--menu-shot=")) is { } shot)
+            GetTree().CreateTimer(1.0).Timeout += () =>
+            {
+                GetViewport().GetTexture().GetImage().SavePng(shot["--menu-shot=".Length..]);
+                GetTree().Quit();
+            };
+    }
+
+    /// <summary>
+    /// The selected car's setups only: its current setup (setup_&lt;key&gt;.json), its factory defaults and the named
+    /// setups in its own folder. Another car's files are never listed.
+    /// </summary>
+    private void RefreshConfigs()
+    {
+        var store = SimulationManager.Setups;
+        string profile = GameSession.VehicleProfile;
+        _config.Clear();
+        _config.AddItem(File.Exists(store.ActivePath(profile))
+            ? $"Current setup ({Path.GetFileName(store.ActivePath(profile))})"
+            : "Current setup (none saved yet: defaults)");
+        _config.AddItem("Factory defaults");
+        foreach (var name in store.ListNamed(profile)) _config.AddItem(name);
+        _config.Select(0);
         Validate();
     }
 
     private void Validate()
     {
         GameSession.ConfigPath = null;
-        string vehicle = VehicleProfiles.DisplayName(GameSession.VehicleProfile);
+        GameSession.FactoryDefaults = false;
+        var store = SimulationManager.Setups;
+        string profile = GameSession.VehicleProfile;
+        string vehicle = VehicleProfiles.DisplayName(profile);
+        string defaults = profile == VehicleProfiles.MiniR56
+            ? "Mini: model.m parameters with the game's mass 1150 kg and μ 1.05."
+            : $"{vehicle}: provisional parameters (no MATLAB model for this car).";
         if (_config.Selected <= 0)
         {
-            _info.Text = GameSession.VehicleProfile == VehicleProfiles.MiniR56
-                ? "Mini: model.m parameters with the game's mass 1150 kg and μ 1.05."
-                : $"{vehicle}: provisional parameters (no MATLAB model for this car).";
+            string active = store.ActivePath(profile);
+            if (!File.Exists(active)) { _info.Text = defaults + " Apply Setup in the setup panel (Tab) saves this car's setup."; return; }
+            store.LoadActive(profile, out var err);
+            _info.Text = err == null ? "Will load " + active : $"{err} — the defaults will be used.";
             return;
         }
-        string path = Path.Combine(SimulationManager.ConfigsDirectory, _config.GetItemText(_config.Selected));
-        if (ConfigSerializer.TryLoad(path, out var cfg, out var err))
+        if (_config.Selected == 1)
         {
-            GameSession.ConfigPath = path;
-            _info.Text = cfg!.Profile == GameSession.VehicleProfile
-                ? "Will load " + path
-                : $"Will load {path} — it is a {VehicleProfiles.DisplayName(cfg.Profile)} configuration, so that car is used.";
+            GameSession.FactoryDefaults = true;
+            _info.Text = defaults + " (The saved setup is kept until you apply another one.)";
+            return;
         }
-        else _info.Text = "Invalid configuration: " + err;
+        string path = store.NamedPath(profile, _config.GetItemText(_config.Selected));
+        try
+        {
+            VehicleSetupStore.LoadFor(profile, path);
+            GameSession.ConfigPath = path;
+            _info.Text = "Will load " + path;
+        }
+        catch (System.Exception ex) when (ex is System.ArgumentException or IOException or System.UnauthorizedAccessException)
+        {
+            _info.Text = "Invalid setup: " + ex.Message;
+        }
     }
 
     /// <summary>

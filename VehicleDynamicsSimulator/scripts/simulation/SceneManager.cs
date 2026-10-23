@@ -106,7 +106,6 @@ public partial class SceneManager : Node
         if (IsLoading) return;
         string track = GameSession.TrackName;
         string vehicle = GameSession.VehicleProfile;
-        if (GameSession.ConfigPath is { } cfg && ConfigSerializer.TryLoad(cfg, out var p, out _)) vehicle = p!.Profile;
         Show($"{track}  ·  {VehicleProfiles.DisplayName(vehicle)}");
         await NextFrame();   // draw the loading screen before any work
 

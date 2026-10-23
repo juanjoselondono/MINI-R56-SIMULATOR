@@ -181,9 +181,9 @@ triangles on Monaco.
 | Physics | `VehicleProfiles` / `VehicleParameters.Profile` (core): Mini R56 and the provisional F1 (vehicle_model §23–§26) |
 | 3D model | One scene per car, `scenes/vehicles/MiniJcwVisuals.tscn` and `F1Visuals.tscn`, with the generic `VehicleVisuals` script. Nodes are found by name: Body, WheelXX (hub) → spin node, SteeringWheel. Material tuning applies to the Mini only. |
 | Presentation data | `VehicleCatalog`: visuals scene, metadata, camera eyes (Mini: bonnet/cockpit; F1: T-cam/cockpit from `f1_meta.json`), chase distance, collision footprint from the asset AABB (Mini 3.76 × 1.68 m, F1 5.60 × 2.00 m), engine firings per revolution for the sound (inline-4: 2, V6: 3) |
-| Swap | `SimulationManager.SwitchVehicle(id)` → `ApplyParameters` with another profile → `VehicleController` replaces the Visuals child, resizes the trigger volume, rebuilds the model at rest. The manager then reconfigures the collision footprint, rebuilds the racing line (margin = half width + 0.36 m) and restarts on the grid. A recording in progress is stopped. |
-| Balance UI | Setup panel group "Handling balance": C_αr, C_αf, CG position, rear downforce share, rear grip factor, roll share, engine braking, TC on/off, TC cornering limit, TC yaw tolerance; derived readout: front weight %, linear understeer gradient (°/g), downforce at 200 km/h front/rear |
-| UI | Main menu: vehicle buttons above the track list (`GameSession.VehicleProfile`; a saved configuration's profile wins). Setup panel: vehicle drop-down; rows rebuilt per profile (gear count, torque nodes, defaults). `-- --vehicle=f1_2019` on the command line. |
+| Swap | `SimulationManager.SwitchVehicle(id)` → `ApplyParameters` with that car's saved setup (`SetupFor`, §4.5) → `VehicleController` replaces the Visuals child, resizes the trigger volume, rebuilds the model at rest. The manager then reconfigures the collision footprint, rebuilds the racing line (margin = half width + 0.36 m) and restarts on the grid. A recording in progress is stopped. |
+| Balance UI | Setup panel group "Handling balance": C_αr, C_αf, CG position, rear downforce share, rear grip factor, roll share, engine braking, TC on/off, TC cornering limit, TC yaw tolerance; brake bias under Braking; derived readout: front weight %, linear understeer gradient (°/g), downforce at 200 km/h front/rear |
+| UI | Main menu: vehicle buttons above the track list (`GameSession.VehicleProfile`), then that car's setups only. Setup panel: vehicle drop-down; rows rebuilt per profile (gear count, torque nodes, defaults) and filtered to the parameters that act on that car (`ParamEntry.Profiles`). `-- --vehicle=f1_2019` on the command line. |
 | Assets | `tools/asset_pipeline/import_f1_glb.py`: GLB → `assets/vehicles/f1/f1.glb` + `f1_meta.json` (node transforms baked into Godot's frame, mirrored nodes' winding fixed, wheels and steering wheel separated by name and proximity, origin under the CG, scaled to the 2.000 m width, BLEND materials without alpha → OPAQUE, decals → MASK) |
 
 ### 4.4 Session loading
@@ -198,6 +198,24 @@ triangles on Monaco.
 | Racing-line cache | `RacingLineCache`: user://cache/racing_lines/*.json, key = algorithm version + track + margin + hash of the corridor (so a re-converted track or another car width recomputes) |
 | CLI modes | `--selftest`, `--demo`, `--perf`, `--track=` keep the synchronous path (deterministic) |
 
+### 4.5 Per-vehicle setups
+
+| Piece | Implementation |
+|---|---|
+| Store | `VehicleSetupStore` (core, unit-tested): `setup_<key>.json` = the car's current setup, `<key>/*.json` = its named setups (key `mini` / `f1`, `VehicleProfiles.SetupKey`); `LoadFor` rejects a file of another profile; `MigrateLegacy` files flat configurations by their `Profile`. Entry points `VehicleParameters.LoadSetup(dir, profile)` / `SaveSetup(dir)`. |
+| Game | `SimulationManager.Setups` (migrates on first use), `SetupFor(profile)` (saved setup in play, defaults in test runs), `SaveCurrentSetup()` (called by Apply Setup). Main menu: current setup / factory defaults / the car's named setups (`GameSession.ConfigPath`, `FactoryDefaults`). |
+| Rows | `ParameterCatalog.Build` filters by `ParamEntry.Profiles` (vehicle_model §29). |
+
+### 4.6 Best laps and podium photos
+
+| Piece | Implementation |
+|---|---|
+| Board | `Leaderboard` (Godot-free, `GameLogic.Tests`): top 10 per track + vehicle, ties keep the earlier lap, atomic JSON save (`user://leaderboard.json`), a corrupt file is renamed `*.corrupt-<time>` and a new board started |
+| Service | `LeaderboardService` (child of SimulationManager): `Record` from `LapTimer.LapCompleted` (valid laps only; flags laps driven with a modified setup), deletes the photos of laps pushed off the board, exposes `Current` (the podium moment) for the UI. Disabled in command-line test runs. |
+| Webcam | `WebcamCapture`: `CameraServer.MonitoringFeeds` lists the cameras (no streaming); for a photo the first (front) feed is opened at ≤ 1280 px, shown through a `CameraTexture` (RGBA), and after a 3-s countdown the first non-black frame is read back with `GetImage()`, scaled to ≤ 720 px high and saved to `user://leaderboard_photos/<entry id>.png`; then the feed is closed. `VideoStreamPlayer` is not used: it plays files and streams, not cameras. Needs a real renderer (no image in `--headless`). One capture at a time: a newer top lap takes over. |
+| Privacy | The camera is open only during the countdown; photos stay local; the "Podium photo" setting (Best Laps panel, `user://settings.cfg`) turns the camera off. |
+| UI | `PodiumOverlay` (top centre: rank, time, mirrored live preview with the countdown, then the photo for 6 s); `LeaderboardPanel` (F4: P1–P10 with photo thumbnails, date, "custom setup" tag, the photo setting). Textures are released in `_ExitTree` on the main thread (GC finalizers at exit would free GPU resources from the wrong thread). |
+
 ## 5. Telemetry and configuration
 
 `TelemetryService` attaches a core `SimulationRecorder` to the loop:
@@ -206,7 +224,7 @@ triangles on Monaco.
   events (shifts, impacts, laps, restarts, recoveries, parameter changes, engine failure).
 - **Export:** writes `user://runs/<timestamp>_<run>.csv` with `<…>.config.json` next to it.
 - **Plots:** read a separate live ring buffer of 1500 samples at the same interval, so they work without recording.
-- **Configurations:** strict JSON files in `user://configs/`.
+- **Configurations:** strict JSON files in `user://configs/`, one file and one folder per vehicle (§4.5).
 
 On Linux `user://` is `~/.local/share/godot/app_userdata/R56 Vehicle Dynamics Simulator/`.
 

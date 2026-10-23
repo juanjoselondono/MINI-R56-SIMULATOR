@@ -805,3 +805,28 @@ collision 0.45 s, racing-line optimisation 6.4 s.
 The session's own loads became cache hits (F1 model 7 ms, track scene 0 ms). The previously reported exit-time leak of
 the motion-blur compute shader and pipeline is fixed (they are freed on the render thread when the camera leaves the
 tree).
+
+## 21. F1 corner entry, per-vehicle setups, best laps (2026-10-22)
+
+Unit tests `VehicleDynamics.Tests` **154/154**, `GameLogic.Tests` **14/14**, self-test **56/56**. MATLAB validation unchanged: B1 with
+`BrakeBiasFront = 0` is model.m's split, and the class defaults are untouched.
+
+**Corner entry** (`F1_CornerEntry_RotatesSlightlyUnderTrailBraking_AndRecovers`; details in vehicle_model §28). From
+85 % of the grip including downforce, braking with the steering held:
+
+| R, brake 0.6 | Peak r / r_neutral, previous F1 | Now | α*_r / α*_f | Peak β | Full brake (1.0) |
+|---|---|---|---|---|---|
+| 50 m | 0.87 | 1.13 | 0.92 | 1.0° | 0.97 |
+| 150 m | 0.08 (plows) | 1.27 | 0.92 | 2.1° | 0.98 |
+
+Corner exit stays a slight understeer (peak 0.98–1.02 × neutral with TC; test bound relaxed from 1.00 to 1.05).
+0–100 km/h: 2.42 s without TC, 3.19 s with it. F1 scripted lap on the Circuit: 54.56 s, valid, 0 impacts (was 55.63 s).
+
+**Setups.** `VehicleSetupStoreTests`: separate files, defaults without a file, foreign files rejected, a profile's own
+defaults for missing keys, migration of flat configurations.
+
+**Best laps.**
+- `LeaderboardTests`: top 10 per track and vehicle, ties, JSON round trip, a corrupt file kept aside.
+- Self-test `--selftest-only=Leaderboard --with-webcam` (rendering run): 4/4, including a 1280 × 720 photo from the
+  integrated camera through CameraServer → CameraTexture, saved as PNG and read back. In `--headless` runs the
+  CameraTexture has no image (dummy renderer), so the full self-test does not use the camera.

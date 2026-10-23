@@ -101,6 +101,12 @@ public sealed class VehicleParameters
     /// </summary>
     public double RearGripFactor { get; set; } = 1.0;
     /// <summary>
+    /// EXTENSION B1 (fixed brake balance): share of the brake force on the front axle. 0 = model.m's split, proportional
+    /// to the instantaneous axle loads (the Mini, validation runs). A fixed value (0.3–0.8) is a brake-bias setting: a
+    /// share below the front's load share leaves the front tyres more lateral grip under braking and asks more of the rear.
+    /// </summary>
+    public double BrakeBiasFront { get; set; } = 0;
+    /// <summary>
     /// Driver aid (game assist, not vehicle physics): traction control trims the throttle when the driven axle would use
     /// more than 85–97 % of its friction circle (less while cornering; VehicleDynamics.UpdateTractionControl). Off for the Mini (model.m has none); on by
     /// default for the provisional F1 profile, whose ~700 kW otherwise spins the rear tyres with any steering input on
@@ -233,7 +239,7 @@ public sealed class VehicleParameters
             DriveLayout = DriveLayout.RearWheelDrive,
             Mass = mass,
             Cd = 0.75, FrontalArea = 1.5,               // C_d A = 1.13 m²
-            LiftCoefficient = 3.0, AeroBalanceFront = 0.38,   // C_l A = 4.5 m² (L/D = 4), 38 % front (rear-biased)
+            LiftCoefficient = 3.0, AeroBalanceFront = 0.47,   // C_l A = 4.5 m² (L/D = 4), 47 % front (entry tuning below)
             GearRatios = gears, FinalDrive = finalDrive, EtaT = 0.95,
             TireWidth = 0.305, AspectRatio = 0.541, RimDiameterInch = 13,
             Mu = 1.6,                                   // warm slicks, dry
@@ -246,6 +252,9 @@ public sealed class VehicleParameters
             // model.m's brake force μ_b μ (W + F_down) has no tyre load sensitivity; at top speed the downforce puts ~4× the
             // static load on the tyres, where slick friction is lower: μ_b 0.8 keeps the peak at ~6 g (2019 cars: 5–6 g).
             BrakeMuFactor = 0.8, BrakeMassFactor = 0.03,
+            // B1: fixed brake balance 56 % front, rearward of the ~60–65 % front load share under heavy braking: the
+            // front keeps lateral grip while trail braking (no plowing) and the rear works harder, so the car rotates on entry.
+            BrakeBiasFront = 0.56,
             IdleRpm = 4000, FuelCutRpm = 13000, MoneyShiftRpm = 15500,
             ClutchTargetRpm = 9000, ClutchBiteRpm = 9000, ClutchCapacity = 900,
             // Engine braking: 50 N·m at the crank (estimate). 120 N·m gave 5.9 kN of braking on the rear axle in 1st gear,
@@ -254,10 +263,12 @@ public sealed class VehicleParameters
             ReverseRatio = 4.0,
             MaxSteerAngle = 0.35,
             YawInertia = 1200,
-            // Rear axle: 405 mm rear vs 305 mm front tyres → stiffer and grippier (C_αr, RearGripFactor); rear-biased
-            // downforce (AeroBalanceFront 0.38). Chosen for an understeer margin before throttle (corner-exit study,
-            // docs/validation_report.md §20).
-            CorneringStiffnessFront = 180000, CorneringStiffnessRear = 320000, RearGripFactor = 1.10,
+            // Rear axle: 405 mm rear vs 305 mm front tyres → grippier (RearGripFactor). Entry tuning (docs/validation_report.md
+            // §21): 180k/320k with 38 % front downforce plowed at the limit under braking (yaw ratio 0.1 at R 150 m).
+            // 230k/280k is near neutral in the linear range (l_r/C_αf ≈ l_f/C_αr), aero 47 % front and the brake bias
+            // make the rear saturate slightly first while trail braking (α*_r/α*_f ≈ 0.92–0.97), and with the brake
+            // released the car settles back to a slight understeer (corner-exit study §20).
+            CorneringStiffnessFront = 230000, CorneringStiffnessRear = 280000, RearGripFactor = 1.10,
             TyreLoadSensitivity = 0.10, FrontRollStiffnessShare = 0.55,
             TractionControl = true,
         };
@@ -284,6 +295,15 @@ public sealed class VehicleParameters
     public double KPhi => KPhiFront + KPhiRear;
     [JsonIgnore]
     public int NumGears => GearRatios.Length;
+
+    /// <summary>
+    /// The saved setup of a vehicle profile in <paramref name="directory"/> (its own file, e.g. setup_f1.json), or the
+    /// profile's defaults when it has none. See <see cref="VehicleSetupStore"/>.
+    /// </summary>
+    public static VehicleParameters LoadSetup(string directory, string profile) => new VehicleSetupStore(directory).LoadActive(profile, out _);
+
+    /// <summary>Saves this set as its own profile's setup in <paramref name="directory"/>; returns the file path.</summary>
+    public string SaveSetup(string directory) => new VehicleSetupStore(directory).SaveActive(this);
 
     public VehicleParameters Clone()
     {
@@ -406,6 +426,7 @@ public sealed class VehicleParameters
         R(nameof(LiftCoefficient), LiftCoefficient, 0, 6);
         R(nameof(AeroBalanceFront), AeroBalanceFront, 0, 1);
         R(nameof(RearGripFactor), RearGripFactor, 0.5, 1.5);
+        if (BrakeBiasFront != 0) R(nameof(BrakeBiasFront), BrakeBiasFront, 0.3, 0.8);
         R(nameof(TractionControlCornerUsage), TractionControlCornerUsage, 0.5, 0.97);
         R(nameof(TractionControlYawTolerance), TractionControlYawTolerance, 1.0, 2.0);
         if (DriveLayout == DriveLayout.RearWheelDrive && Mu * RearGripFactor * CgHeight / Wheelbase >= 0.9)

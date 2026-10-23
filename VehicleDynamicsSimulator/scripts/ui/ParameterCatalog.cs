@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using VehicleDynamics.Core.Simulation;
 
 namespace Simulator.UI;
@@ -8,14 +9,18 @@ public enum ParamSource { ModelM, JsSeed, ExtE1, ExtE2, ExtE3, ExtE4, ExtE5, Cor
 
 public sealed record ParamEntry(
     string Group, string Name, string Unit, double Min, double Max, double Step, string Help, ParamSource Source,
-    Func<VehicleParameters, double> Get, Action<VehicleParameters, double> Set, bool IsToggle = false, bool RestartOnly = false);
+    Func<VehicleParameters, double> Get, Action<VehicleParameters, double> Set, bool IsToggle = false, bool RestartOnly = false,
+    string[]? Profiles = null);
 
 /// <summary>
 /// The parameters the setup panel exposes. Only quantities that exist in the model are listed; every range lies inside
 /// <see cref="VehicleParameters.Validate"/>. Cross-parameter rules (strictly decreasing gear ratios, c within the
 /// wheelbase, idle &lt; fuel cut &lt; money shift…) are checked by Validate on the edited copy before Apply.
 /// model.m's MarginSafety is not listed: it is a planning margin used only by the reference/validation layer.
-/// The list depends on the vehicle profile (number of gears and torque nodes); ranges cover every profile.
+/// The list depends on the vehicle profile: number of gears and torque nodes, and only the parameters that act on that
+/// car (<see cref="ParamEntry.Profiles"/>; e.g. no springs for the F1, whose RWD traction limit does not use them, and no
+/// aero, rear grip, brake bias or traction control for the Mini). Hidden parameters keep the profile's values. Ranges
+/// cover every profile.
 /// </summary>
 public static class ParameterCatalog
 {
@@ -35,14 +40,17 @@ public static class ParameterCatalog
         _ => "Ext. E3 (provisional)",
     };
 
+    private static readonly string[] MiniOnly = { VehicleProfiles.MiniR56 };
+    private static readonly string[] F1Only = { VehicleProfiles.F1 };
+
     public static List<ParamEntry> Build(VehicleParameters current)
     {
         var l = new List<ParamEntry>();
         void Add(string g, string n, string u, double min, double max, double step, string help, ParamSource src,
-            Func<VehicleParameters, double> get, Action<VehicleParameters, double> set, bool restartOnly = false)
-            => l.Add(new ParamEntry(g, n, u, min, max, step, help, src, get, set, RestartOnly: restartOnly));
-        void Toggle(string g, string n, string help, ParamSource src, Func<VehicleParameters, bool> get, Action<VehicleParameters, bool> set)
-            => l.Add(new ParamEntry(g, n, "", 0, 1, 1, help, src, p => get(p) ? 1 : 0, (p, v) => set(p, v >= 0.5), IsToggle: true));
+            Func<VehicleParameters, double> get, Action<VehicleParameters, double> set, bool restartOnly = false, string[]? only = null)
+            => l.Add(new ParamEntry(g, n, u, min, max, step, help, src, get, set, RestartOnly: restartOnly, Profiles: only));
+        void Toggle(string g, string n, string help, ParamSource src, Func<VehicleParameters, bool> get, Action<VehicleParameters, bool> set, string[]? only = null)
+            => l.Add(new ParamEntry(g, n, "", 0, 1, 1, help, src, p => get(p) ? 1 : 0, (p, v) => set(p, v >= 0.5), IsToggle: true, Profiles: only));
 
         const string body = "Vehicle body & environment";
         Add(body, "Mass M", "kg", 500, 3000, 1, "Running mass. model.m: car.M = 1420 kg; game default 1150 kg (user-supplied with I_zz). Enters F_x,max, rolling, grade, every inertia term and the E4 lateral dynamics.", ParamSource.UserData, p => p.Mass, (p, v) => p.Mass = v);
@@ -52,10 +60,9 @@ public static class ParameterCatalog
         Add(body, "Road grade", "%", -20, 20, 0.5, "model.m slope (pct mode). One grade for the whole track, as in model.m: + = uphill.", ParamSource.ModelM,
             p => p.SlopeMode == SlopeMode.Pct ? p.SlopeValue : Math.Tan(p.Theta) * 100, (p, v) => { p.SlopeMode = SlopeMode.Pct; p.SlopeValue = v; });
 
-        const string layout = "Layout & aerodynamics (profiles, extension A1)";
-        Toggle(layout, "Rear-wheel drive", "Driven axle. Off = FWD (model.m: traction limit of the front axle). On = RWD: rear-axle traction limit μ W_r / (1 − μ h/L), drive force on the rear tyres.", ParamSource.Profile,
-            p => p.DriveLayout == DriveLayout.RearWheelDrive, (p, v) => p.DriveLayout = v ? DriveLayout.RearWheelDrive : DriveLayout.FrontWheelDrive);
-        Add(layout, "Lift coefficient C_l", "–", 0, 5, 0.01, "Downforce F = ½ρv² C_l A (A = frontal area). Adds to the tyre loads: traction limit, brakes, axle grip and rolling resistance. 0 = no downforce (model.m, Mini).", ParamSource.ExtA1, p => p.LiftCoefficient, (p, v) => p.LiftCoefficient = v);
+        // The driven axle is part of the profile (Mini FWD as model.m, F1 RWD), not a setup parameter.
+        const string layout = "Aerodynamics (extension A1)";
+        Add(layout, "Lift coefficient C_l", "–", 0, 5, 0.01, "Downforce F = ½ρv² C_l A (A = frontal area). Adds to the tyre loads: traction limit, brakes, axle grip and rolling resistance. 0 = no downforce.", ParamSource.ExtA1, p => p.LiftCoefficient, (p, v) => p.LiftCoefficient = v, only: F1Only);
 
         // Everything that moves the car between understeer and oversteer, in one place (corner-exit study:
         // docs/validation_report.md §20).
@@ -63,14 +70,14 @@ public static class ParameterCatalog
         Add(bal, "Rear cornering stiffness C_αr", "N/rad", 30000, 500000, 1000, "Rear axle (both tyres). Higher = rear slips less for a given side force → more understeer / stability (wider rear tyres). Linear-range effect; under power the rear grip and TC dominate.", ParamSource.ExtE4, p => p.CorneringStiffnessRear, (p, v) => p.CorneringStiffnessRear = v);
         Add(bal, "Front cornering stiffness C_αf", "N/rad", 30000, 500000, 1000, "Front axle (both tyres). Lower = more understeer (front needs more slip angle).", ParamSource.ExtE4, p => p.CorneringStiffnessFront, (p, v) => p.CorneringStiffnessFront = v);
         Add(bal, "CG to rear axle c", "m", 0.5, 2.5, 0.001, "car.c: front weight share = c / L. Smaller c (CG further back) = more load on the rear tyres → more rear grip and RWD traction, less power oversteer; but less front grip (more understeer at turn-in).", ParamSource.ModelM, p => p.CgToRear, (p, v) => p.CgToRear = v);
-        Add(bal, "Rear downforce share", "–", 0, 1, 0.01, "Share of the downforce on the rear axle (1 − aero balance). Higher = more rear grip at speed → more high-speed understeer / stability. No effect without a lift coefficient.", ParamSource.ExtA1, p => 1 - p.AeroBalanceFront, (p, v) => p.AeroBalanceFront = 1 - v);
-        Add(bal, "Rear grip factor (tyre width)", "–", 0.7, 1.3, 0.01, "Rear-axle friction relative to μ: wider rear tyres. Higher = more rear grip → less oversteer (with TC on, mostly allows more drive).", ParamSource.Profile, p => p.RearGripFactor, (p, v) => p.RearGripFactor = v);
+        Add(bal, "Rear downforce share", "–", 0, 1, 0.01, "Share of the downforce on the rear axle (1 − aero balance). Higher = more rear grip at speed → more high-speed understeer / stability; lower = the front bites on entry (default 0.53).", ParamSource.ExtA1, p => 1 - p.AeroBalanceFront, (p, v) => p.AeroBalanceFront = 1 - v, only: F1Only);
+        Add(bal, "Rear grip factor (tyre width)", "–", 0.7, 1.3, 0.01, "Rear-axle friction relative to μ: wider rear tyres. Higher = more rear grip → less oversteer (with TC on, mostly allows more drive).", ParamSource.Profile, p => p.RearGripFactor, (p, v) => p.RearGripFactor = v, only: F1Only);
         Add(bal, "Front roll-stiffness share", "–", 0.2, 0.8, 0.01, "Share of the lateral load transfer on the front axle (anti-roll bars). Higher = front loses more grip in corners → more understeer.", ParamSource.ExtE4, p => p.FrontRollStiffnessShare, (p, v) => p.FrontRollStiffnessShare = v);
         Add(bal, "Engine braking torque", "N·m", 0, 200, 1, "Coasting drag torque at the crank, applied on the driven axle. On a RWD car, high values make the rear step out on a lift (lift-off oversteer).", ParamSource.JsSeed, p => p.EngineBrakeTorque, (p, v) => p.EngineBrakeTorque = v);
         Toggle(bal, "Traction control (driver aid)", "Game assist, not vehicle physics: caps the throttle so the driven axle keeps lateral reserve, and cuts it when the car rotates faster than neutral steer. Default on for the F1 (no TC on real 2019 cars), off for the Mini.", ParamSource.Profile,
-            p => p.TractionControl, (p, v) => p.TractionControl = v);
-        Add(bal, "TC cornering limit", "–", 0.5, 0.97, 0.01, "Share of the driven axle's friction circle drive + side force may use while cornering (0.97 straight). Lower = more reserve = less power oversteer, slower exits.", ParamSource.Profile, p => p.TractionControlCornerUsage, (p, v) => p.TractionControlCornerUsage = v);
-        Add(bal, "TC yaw tolerance", "×", 1.0, 2.0, 0.01, "Under power, the throttle is cut when the yaw rate exceeds this multiple of the neutral-steer yaw rate v·tanδ/L. Lower = TC intervenes earlier on a rotating car.", ParamSource.Profile, p => p.TractionControlYawTolerance, (p, v) => p.TractionControlYawTolerance = v);
+            p => p.TractionControl, (p, v) => p.TractionControl = v, only: F1Only);
+        Add(bal, "TC cornering limit", "–", 0.5, 0.97, 0.01, "Share of the driven axle's friction circle drive + side force may use while cornering (0.97 straight). Lower = more reserve = less power oversteer, slower exits.", ParamSource.Profile, p => p.TractionControlCornerUsage, (p, v) => p.TractionControlCornerUsage = v, only: F1Only);
+        Add(bal, "TC yaw tolerance", "×", 1.0, 2.0, 0.01, "Under power, the throttle is cut when the yaw rate exceeds this multiple of the neutral-steer yaw rate v·tanδ/L. Lower = TC intervenes earlier on a rotating car.", ParamSource.Profile, p => p.TractionControlYawTolerance, (p, v) => p.TractionControlYawTolerance = v, only: F1Only);
 
         const string tyre = "Tyres & traction limit (F_x,max)";
         Add(tyre, "Friction coefficient μ", "–", 0.3, 2.0, 0.01, "Tyre–road friction (car.mu = 0.90 in model.m; game default 1.05 for performance road tyres). Scales F_x,max, braking and the lateral grip.", ParamSource.ModelM, p => p.Mu, (p, v) => p.Mu = v);
@@ -82,10 +89,10 @@ public static class ParameterCatalog
         Add(tyre, "CG height h", "m", 0.2, 0.8, 0.001, "car.h. Longitudinal load transfer term (h/L)μ of F_x,max.", ParamSource.ModelM, p => p.CgHeight, (p, v) => p.CgHeight = v);
         Add(tyre, "Front track t_f", "m", 1.2, 1.8, 0.001, "car.t_f. Enters the torque-induced lateral load-transfer term of F_x,max.", ParamSource.ModelM, p => p.TrackFront, (p, v) => p.TrackFront = v);
         Add(tyre, "Rear track t_r", "m", 1.2, 1.8, 0.001, "car.t_r (defined in model.m; not used by its equations).", ParamSource.ModelM, p => p.TrackRear, (p, v) => p.TrackRear = v);
-        Add(tyre, "Front spring K_s,f", "N/m", 10000, 300000, 100, "car.K_s_f → roll stiffness K_φ,f = ½ K s².", ParamSource.ModelM, p => p.SpringFront, (p, v) => p.SpringFront = v);
-        Add(tyre, "Rear spring K_s,r", "N/m", 10000, 300000, 100, "car.K_s_r → K_φ,r. F_x,max uses K_φ,r / K_φ.", ParamSource.ModelM, p => p.SpringRear, (p, v) => p.SpringRear = v);
-        Add(tyre, "Front spring spacing s_f", "m", 0.8, 1.3, 0.001, "car.s_f.", ParamSource.ModelM, p => p.SpringSepFront, (p, v) => p.SpringSepFront = v);
-        Add(tyre, "Rear spring spacing s_r", "m", 0.8, 1.3, 0.001, "car.s_r.", ParamSource.ModelM, p => p.SpringSepRear, (p, v) => p.SpringSepRear = v);
+        Add(tyre, "Front spring K_s,f", "N/m", 10000, 300000, 100, "car.K_s_f → roll stiffness K_φ,f = ½ K s².", ParamSource.ModelM, p => p.SpringFront, (p, v) => p.SpringFront = v, only: MiniOnly);
+        Add(tyre, "Rear spring K_s,r", "N/m", 10000, 300000, 100, "car.K_s_r → K_φ,r. F_x,max uses K_φ,r / K_φ.", ParamSource.ModelM, p => p.SpringRear, (p, v) => p.SpringRear = v, only: MiniOnly);
+        Add(tyre, "Front spring spacing s_f", "m", 0.8, 1.3, 0.001, "car.s_f.", ParamSource.ModelM, p => p.SpringSepFront, (p, v) => p.SpringSepFront = v, only: MiniOnly);
+        Add(tyre, "Rear spring spacing s_r", "m", 0.8, 1.3, 0.001, "car.s_r.", ParamSource.ModelM, p => p.SpringSepRear, (p, v) => p.SpringSepRear = v, only: MiniOnly);
 
         const string drive = "Drivetrain";
         Add(drive, "Final drive i_fd", "–", 2.5, 6.0, 0.001, "car.final_drive.", ParamSource.ModelM, p => p.FinalDrive, (p, v) => p.FinalDrive = v);
@@ -114,14 +121,15 @@ public static class ParameterCatalog
         const string brake = "Braking";
         Add(brake, "Braking μ factor", "–", 0.3, 1.2, 0.01, "model.m §11: F_brake = factor · μ · M g cosθ (0.90).", ParamSource.ModelM, p => p.BrakeMuFactor, (p, v) => p.BrakeMuFactor = v);
         Add(brake, "Braking mass factor", "–", 0, 0.2, 0.005, "model.m §11: M_eq,brake = M(1 + factor) (0.05).", ParamSource.ModelM, p => p.BrakeMassFactor, (p, v) => p.BrakeMassFactor = v);
+        Add(brake, "Brake bias (front share)", "–", 0.3, 0.8, 0.01, "Extension B1: share of the brake force on the front axle. Lower (rearward) = the front keeps more lateral grip while trail braking and the rear works harder → the car rotates on entry; too low and the rear steps out under braking. The Mini keeps model.m's load-proportional split.", ParamSource.Profile, p => p.BrakeBiasFront, (p, v) => p.BrakeBiasFront = v, only: F1Only);
 
         const string seed = "Engine rules from the JS seed game";
         Add(seed, "Idle speed", "rpm", 600, 5000, 10, "Engine speed floor; torque below the first node uses the 1000-rpm value.", ParamSource.JsSeed, p => p.IdleRpm, (p, v) => p.IdleRpm = v);
         Add(seed, "Fuel cut", "rpm", 5000, 16000, 10, "Torque = 0 at or above (rev limiter).", ParamSource.JsSeed, p => p.FuelCutRpm, (p, v) => p.FuelCutRpm = v);
-        Add(seed, "Seed clutch target", "rpm", 2000, 12000, 10, "Only with the seed launch rule: engine held at idle + throttle·(target − idle) in 1st until the wheels catch up.", ParamSource.JsSeed, p => p.ClutchTargetRpm, (p, v) => p.ClutchTargetRpm = v);
+        Add(seed, "Seed clutch target", "rpm", 2000, 12000, 10, "Only with the seed launch rule: engine held at idle + throttle·(target − idle) in 1st until the wheels catch up.", ParamSource.JsSeed, p => p.ClutchTargetRpm, (p, v) => p.ClutchTargetRpm = v, only: MiniOnly);
         Add(seed, "Money-shift limit", "rpm", 6600, 18000, 10, "Wheel-driven engine speed that destroys the engine (seed: 7200).", ParamSource.JsSeed, p => p.MoneyShiftRpm, (p, v) => p.MoneyShiftRpm = v);
         Toggle(seed, "Mechanical damage", "Over-revving above the money-shift limit destroys the engine.", ParamSource.JsSeed, p => p.MechanicalDamage, (p, v) => p.MechanicalDamage = v);
-        Toggle(seed, "Seed launch rule instead of E5", "Use the seed's rpm rule in 1st gear instead of the physical launch clutch.", ParamSource.JsSeed, p => p.LaunchModel == LaunchModel.SeedRule, (p, v) => p.LaunchModel = v ? LaunchModel.SeedRule : LaunchModel.PhysicalClutch);
+        Toggle(seed, "Seed launch rule instead of E5", "Use the seed's rpm rule in 1st gear instead of the physical launch clutch.", ParamSource.JsSeed, p => p.LaunchModel == LaunchModel.SeedRule, (p, v) => p.LaunchModel = v ? LaunchModel.SeedRule : LaunchModel.PhysicalClutch, only: MiniOnly);
 
         const string e5 = "Launch clutch (extension E5)";
         Toggle(e5, "Launch model on", "Off: model.m as is (engine always tied to the wheels, idle clamp); the car cannot pull away cleanly from 0 km/h.", ParamSource.ExtE5, p => p.ClutchLaunch, (p, v) => p.ClutchLaunch = v);
@@ -151,6 +159,6 @@ public static class ParameterCatalog
 
         const string sim = "Numerics";
         Add(sim, "Physics time step dt", "s", 0.001, 0.02, 0.0005, "model.m dt = 0.005 s. Semi-implicit Euler as in model.m; see the convergence study in docs/validation_report.md.", ParamSource.ModelM, p => p.Dt, (p, v) => p.Dt = v, restartOnly: false);
-        return l;
+        return l.Where(e => e.Profiles == null || e.Profiles.Contains(current.Profile)).ToList();
     }
 }

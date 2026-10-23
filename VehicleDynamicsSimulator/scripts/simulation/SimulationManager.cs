@@ -19,8 +19,21 @@ namespace Simulator.Simulation;
 public static class GameSession
 {
     public static string TrackName { get; set; } = "Circuit";
-    /// <summary>Optional configuration JSON (absolute path) to load at start; its vehicle profile wins.</summary>
+    /// <summary>
+    /// Optional named setup (absolute path, in the vehicle's own folder) to load at start instead of the vehicle's
+    /// current setup (setup_&lt;key&gt;.json). It must belong to <see cref="VehicleProfile"/>.
+    /// </summary>
     public static string? ConfigPath { get; set; }
+    /// <summary>Start with the profile's factory defaults instead of its saved setup (main menu choice).</summary>
+    public static bool FactoryDefaults { get; set; }
+    /// <summary>
+    /// Saved setups are used (and written) only in interactive play: command-line test modes always drive the profile
+    /// defaults so their results do not depend on what the player saved.
+    /// </summary>
+    public static bool UseSavedSetups(string[] args) => !IsTestRun(args);
+
+    public static bool IsTestRun(string[] args) => args.Any(a => a.StartsWith("--autodrive") || a == "--selftest" || a.StartsWith("--selftest-only")
+        || a == "--demo" || a.StartsWith("--track=") || a.StartsWith("--shots=") || a.StartsWith("--perf=") || a == "--via-loading-screen");
     /// <summary>Vehicle profile to drive (VehicleProfiles id), chosen in the main menu or the setup panel.</summary>
     public static string VehicleProfile { get; set; } = VehicleDynamics.Core.Simulation.VehicleProfiles.MiniR56;
     /// <summary>
@@ -63,6 +76,8 @@ public partial class SimulationManager : Node
     public CollisionManager Collisions { get; private set; } = null!;
     public LapTimer Laps { get; private set; } = null!;
     public TelemetryService Telemetry { get; } = new();
+    /// <summary>All-time top-10 laps per track and vehicle, with webcam podium photos.</summary>
+    public LeaderboardService Leaderboard { get; private set; } = null!;
     public Surface CurrentSurface { get; private set; }
     /// <summary>Last ground sample on a converted mesh track (null on procedural tracks).</summary>
     public GroundSample? CurrentGround { get; private set; }
@@ -75,6 +90,54 @@ public partial class SimulationManager : Node
 
     public static string RunsDirectory => ProjectSettings.GlobalizePath("user://runs");
     public static string ConfigsDirectory => ProjectSettings.GlobalizePath("user://configs");
+    private static bool _setupsMigrated;
+
+    /// <summary>
+    /// Per-vehicle setup files under <see cref="ConfigsDirectory"/> (setup_mini.json, setup_f1.json, mini/, f1/). The
+    /// first access moves configurations saved before the split into their vehicle's folder.
+    /// </summary>
+    public static VehicleSetupStore Setups
+    {
+        get
+        {
+            var store = new VehicleSetupStore(ConfigsDirectory);
+            if (!_setupsMigrated)
+            {
+                _setupsMigrated = true;
+                try
+                {
+                    int moved = store.MigrateLegacy();
+                    if (moved > 0) GD.Print($"Setups: moved {moved} configuration(s) into their vehicle folders under {ConfigsDirectory}");
+                }
+                catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException) { GD.PushWarning("Setup migration: " + ex.Message); }
+            }
+            return store;
+        }
+    }
+
+    /// <summary>The parameters a vehicle starts with: its saved setup in play, its defaults in test runs.</summary>
+    public VehicleParameters SetupFor(string profileId)
+    {
+        if (!GameSession.UseSavedSetups(OS.GetCmdlineUserArgs())) return VehicleProfiles.Create(profileId);
+        var p = Setups.LoadActive(profileId, out var err);
+        if (err != null) Notify($"Saved setup ignored ({err}); using the defaults");
+        return p;
+    }
+
+    /// <summary>Stores the running parameters as the current vehicle's own setup (setup_&lt;key&gt;.json).</summary>
+    public string? SaveCurrentSetup()
+    {
+        if (!GameSession.UseSavedSetups(OS.GetCmdlineUserArgs())) return null;
+        try
+        {
+            return Setups.SaveActive(Vehicle.Parameters);
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            Notify("Setup not saved: " + ex.Message);
+            return null;
+        }
+    }
 
     private int _lastGear = 1;
     private bool _blownLogged;
@@ -85,23 +148,36 @@ public partial class SimulationManager : Node
         Vehicle = GetNode<VehicleController>(VehiclePath);
         Camera = GetNodeOrNull<ChaseCamera>(CameraPath);
         AddToGroup("simulation_manager");
+        bool testRun = GameSession.IsTestRun(OS.GetCmdlineUserArgs());
+        // Dev: `--leaderboard-file=PATH` shows another board (read-only in test runs; photos in PATH's folder/photos).
+        string? boardFile = OS.GetCmdlineUserArgs().FirstOrDefault(x => x.StartsWith("--leaderboard-file="))?["--leaderboard-file=".Length..];
+        Leaderboard = boardFile == null
+            ? new LeaderboardService { Name = "Leaderboard", Enabled = !testRun, CameraAllowed = !testRun }
+            : new LeaderboardService
+            {
+                Name = "Leaderboard", Enabled = !testRun, CameraAllowed = !testRun, FilePath = boardFile,
+                PhotosDirectory = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(boardFile) ?? ".", "photos"),
+            };
+        AddChild(Leaderboard);
 
         if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--vehicle=")) is { } vArg)
             GameSession.VehicleProfile = vArg["--vehicle=".Length..];
         bool configured = false;
         if (GameSession.ConfigPath is { } cfg)
         {
-            if (ConfigSerializer.TryLoad(cfg, out var p, out var err))
+            try
             {
-                Vehicle.ApplyParameters(p!);
-                GameSession.VehicleProfile = p!.Profile;
+                Vehicle.ApplyParameters(VehicleSetupStore.LoadFor(GameSession.VehicleProfile, cfg));
                 configured = true;
             }
-            else Notify($"Configuration not loaded: {err}");
+            catch (Exception ex) when (ex is ArgumentException or System.IO.IOException or UnauthorizedAccessException)
+            {
+                Notify($"Configuration not loaded: {ex.Message}");
+            }
         }
         if (!configured)
             using (LoadTimer.Stage("vehicle " + GameSession.VehicleProfile))
-                Vehicle.ApplyParameters(VehicleProfiles.Create(GameSession.VehicleProfile));
+                Vehicle.ApplyParameters(GameSession.FactoryDefaults ? VehicleProfiles.Create(GameSession.VehicleProfile) : SetupFor(GameSession.VehicleProfile));
         Vehicle.VehicleChanged += OnVehicleChanged;
         var trackArg = OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--track="));
         if (trackArg != null) GameSession.TrackName = trackArg["--track=".Length..];
@@ -181,6 +257,8 @@ public partial class SimulationManager : Node
         {
             Telemetry.AddEvent(FormattableString.Invariant($"lap:{lap.Lap}:{lap.Time:F3}:{(lap.Valid ? "valid" : "invalid")}"));
             Notify(FormattableString.Invariant($"Lap {lap.Lap}: {FormatTime(lap.Time)}{(lap.Valid ? "" : " (invalid)")}"));
+            if (Leaderboard.Record(Track.TrackName, Vehicle.Parameters, lap.Time, lap.Valid) is { } podium)
+                Notify(FormattableString.Invariant($"TOP 10 — P{podium.Rank} all time on {Track.TrackName}: {FormatTime(lap.Time)}"));
         };
 
         if (Track.Mesh is { } mesh)
@@ -435,11 +513,11 @@ public partial class SimulationManager : Node
     }
 
     /// <summary>Applies parameters between steps. A dt change restarts the recording so each CSV has one sample interval.</summary>
-    /// <summary>Drive another vehicle profile: its default parameters, 3D model and footprint; back to the grid.</summary>
+    /// <summary>Drive another vehicle profile: its own saved setup (or defaults), 3D model and footprint; back to the grid.</summary>
     public void SwitchVehicle(string profileId)
     {
         if (profileId == Vehicle.Parameters.Profile) return;
-        ApplyParameters(VehicleProfiles.Create(profileId));
+        ApplyParameters(SetupFor(profileId));
     }
 
     /// <summary>
@@ -480,7 +558,7 @@ public partial class SimulationManager : Node
         done?.Invoke();
     }
 
-    public void SwitchVehicleAsync(string profileId, Action? done = null) => ChangeVehicleAsync(VehicleProfiles.Create(profileId), done);
+    public void SwitchVehicleAsync(string profileId, Action? done = null) => ChangeVehicleAsync(SetupFor(profileId), done);
 
     /// <summary>Collision footprint of the current car (asset-pipeline AABB).</summary>
     private void ConfigureCollisions()

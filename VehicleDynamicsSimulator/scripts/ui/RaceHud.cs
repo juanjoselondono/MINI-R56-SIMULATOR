@@ -122,6 +122,6 @@ public partial class RaceHud : Control
             DrawRect(m, new Color(0, 0, 0, 0.65f));
             DrawString(font, m.Position + new Vector2(15, 23), _sim.LastMessage, HorizontalAlignment.Left, -1, 16, UiTheme.Text);
         }
-        DrawString(font, new Vector2(18, vp.Y - 16), "F1 help · Tab setup · F2 telemetry · F3 compare · F5 record · Esc menu", HorizontalAlignment.Left, -1, 13, new Color(1, 1, 1, 0.6f));
+        DrawString(font, new Vector2(18, vp.Y - 16), "F1 help · Tab setup · F2 telemetry · F3 compare · F4 best laps · F5 record · Esc menu", HorizontalAlignment.Left, -1, 13, new Color(1, 1, 1, 0.6f));
     }
 }

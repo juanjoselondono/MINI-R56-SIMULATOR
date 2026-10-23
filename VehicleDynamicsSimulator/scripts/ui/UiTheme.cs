@@ -53,6 +53,20 @@ public static class UiTheme
         return t;
     }
 
+    public const string AuthorCredit = "Developed by Juan José Londoño";
+
+    /// <summary>Author credit (main menu; the loading screen has the same in LoadingScreen.tscn): accent bar + label.</summary>
+    public static HBoxContainer Credit(int size = 16)
+    {
+        var h = new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore, Alignment = BoxContainer.AlignmentMode.End };
+        h.AddThemeConstantOverride("separation", 10);
+        h.AddChild(new ColorRect { Color = new Color(0.98f, 0.55f, 0.12f), CustomMinimumSize = new Vector2(3, 0), MouseFilter = Control.MouseFilterEnum.Ignore });
+        var l = Label(AuthorCredit, size, new Color(0.94f, 0.95f, 0.97f, 0.9f));
+        l.AddThemeFontOverride("font", new FontVariation { SpacingGlyph = 1 });
+        h.AddChild(l);
+        return h;
+    }
+
     public static Label Label(string text, int size = 14, Color? color = null)
     {
         var l = new Label { Text = text };

@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Godot;
+using Simulator.Race;
 using Simulator.Simulation;
 using Simulator.Track;
 using Simulator.UI;
@@ -66,8 +67,16 @@ public partial class SelfTest : Node
         {
             await Frames(2);
             // --selftest-only=Monaco runs just the converted-track suite (quick check after re-converting assets).
-            bool monacoOnly = OS.GetCmdlineUserArgs().Contains("--selftest-only=Monaco");
-            if (OS.GetCmdlineUserArgs().Contains("--selftest-only=F1"))
+            bool monacoOnly = OS.GetCmdlineUserArgs().Contains("--selftest-only=Monaco"), boardOnly = false;
+            if (OS.GetCmdlineUserArgs().Contains("--selftest-only=Leaderboard"))
+            {
+                // Best laps and per-vehicle setups only; add --with-webcam to take a real photo through the camera.
+                _track = "board";
+                await LeaderboardSuite();
+                monacoOnly = true;
+                boardOnly = true;
+            }
+            else if (OS.GetCmdlineUserArgs().Contains("--selftest-only=F1"))
             {
                 _track = "F1";
                 _sim.LoadTrack("Circuit");
@@ -86,12 +95,15 @@ public partial class SelfTest : Node
                 }
                 _track = "both";
                 await UiAndComparison();
+                _track = "board";
+                await LeaderboardSuite();
                 _track = "F1";
                 _sim.LoadTrack("Circuit");
                 await Frames(2);
                 await VehicleProfileSuite();
             }
-            if (TrackManager.Available.Contains("Monaco"))
+            if (boardOnly) { }
+            else if (TrackManager.Available.Contains("Monaco"))
             {
                 _track = "Monaco";
                 _sim.LoadTrack("Monaco");
@@ -110,6 +122,58 @@ public partial class SelfTest : Node
         foreach (var r in _results) GD.Print($"{(r.Pass ? "PASS" : "FAIL")}  {r.Track,-8} {r.Name,-28} {r.Detail}");
         GD.Print($"==== {_results.Count - failed}/{_results.Count} passed ====");
         AppQuit.Quit(this, failed == 0 ? 0 : 1);
+    }
+
+    /// <summary>
+    /// All-time best laps (own file in user://selftest, never the player's board) and the per-vehicle setup rules.
+    /// With --with-webcam the last top lap takes a real podium photo through CameraServer.
+    /// </summary>
+    private async Task LeaderboardSuite()
+    {
+        // Test runs drive the profile defaults and never record laps, whatever the player saved.
+        Check("test run: defaults, no board", !_sim.Leaderboard.Enabled
+            && ConfigSerializer.ToJson(_sim.SetupFor(VehicleProfiles.F1)) == ConfigSerializer.ToJson(VehicleParameters.F1Provisional()),
+            "saved setups and the leaderboard are left alone");
+
+        // Setup panel rows follow the vehicle.
+        var f1Rows = ParameterCatalog.Build(VehicleParameters.F1Provisional()).Select(e => e.Name).ToList();
+        var miniRows = ParameterCatalog.Build(VehicleParameters.MiniCooperR56()).Select(e => e.Name).ToList();
+        bool rows = f1Rows.Contains("Brake bias (front share)") && f1Rows.Contains("Lift coefficient C_l") && !f1Rows.Contains("Front spring K_s,f")
+            && miniRows.Contains("Front spring K_s,f") && !miniRows.Contains("Brake bias (front share)") && !miniRows.Contains("Traction control (driver aid)");
+        Check("setup rows per vehicle", rows, $"F1 {f1Rows.Count} rows, Mini {miniRows.Count} rows");
+
+        bool webcam = OS.GetCmdlineUserArgs().Contains("--with-webcam");
+        string dir = ProjectSettings.GlobalizePath($"user://selftest/board_{DateTime.Now:yyyyMMdd_HHmmss}");
+        var service = new LeaderboardService
+        {
+            Name = "TestBoard", FilePath = Path.Combine(dir, "leaderboard.json"), PhotosDirectory = Path.Combine(dir, "photos"),
+            Enabled = true, CameraAllowed = webcam,
+        };
+        AddChild(service);
+        var mini = VehicleParameters.MiniCooperR56();
+        for (int i = 0; i < 12; i++) service.Record("Circuit", mini, 90 + i, valid: true);
+        bool invalidIgnored = service.Record("Circuit", mini, 50, valid: false) == null;
+        var custom = mini.Clone();
+        custom.Mass = 1000;
+        var podium = service.Record("Circuit", custom, 89.5, valid: true);
+        var reloaded = Leaderboard.Load(service.FilePath, out var err);
+        var top = reloaded.Top("Circuit", VehicleProfiles.MiniR56);
+        Check("top 10 saved as JSON", err == null && invalidIgnored && top.Count == 10 && top[0].Time == 89.5 && top[0].CustomSetup
+            && top[^1].Time == 98 && podium?.Rank == 1 && reloaded.Top("Circuit", VehicleProfiles.F1).Count == 0,
+            $"{top.Count} entries, best {F(top[0].Time)} s (custom setup {top[0].CustomSetup}), 10th {F(top[^1].Time)} s; {service.FilePath}");
+
+        if (webcam && podium != null)
+        {
+            ulong t0 = Time.GetTicksMsec();
+            while (!podium.Finished && Time.GetTicksMsec() - t0 < 12000) await Frames(1);
+            var entry = Leaderboard.Load(service.FilePath, out _).Find(podium.Entry.Id);
+            string? photo = entry?.Photo == null ? null : Path.Combine(service.PhotosDirectory, entry.Photo);
+            var img = photo != null && File.Exists(photo) ? Image.LoadFromFile(photo) : null;
+            Check("webcam podium photo", img != null && !img.IsEmpty(),
+                img != null ? $"{photo} ({img.GetWidth()}×{img.GetHeight()})" : podium.PhotoNote ?? "no photo");
+        }
+        service.QueueFree();
+        await Frames(1);
     }
 
     private async Task TrackSuite()

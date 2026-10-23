@@ -5,7 +5,7 @@ using Simulator.Vehicle;
 
 namespace Simulator.UI;
 
-/// <summary>Hosts the HUD and the panels; toggles them with Tab / F2 / F3 / F1.</summary>
+/// <summary>Hosts the HUD, the panels and the podium banner; toggles the panels with Tab / F2 / F3 / F4 / F1.</summary>
 public partial class UiRoot : CanvasLayer
 {
     [Export] public NodePath SimulationPath { get; set; } = new("../SimulationManager");
@@ -14,6 +14,7 @@ public partial class UiRoot : CanvasLayer
     private VehicleSetupPanel _setup = null!;
     private TelemetryPanel _telemetry = null!;
     private RunComparisonPanel _comparison = null!;
+    private LeaderboardPanel _leaderboard = null!;
     private PanelContainer _help = null!;
 
     public override void _Ready()
@@ -41,10 +42,22 @@ public partial class UiRoot : CanvasLayer
         _comparison.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.Center, Control.LayoutPresetMode.KeepSize);
         _comparison.OffsetLeft = -380; _comparison.OffsetRight = 380; _comparison.OffsetTop = -330; _comparison.OffsetBottom = 330;
 
+        _leaderboard = new LeaderboardPanel();
+        AddChild(_leaderboard);
+        _leaderboard.Init(_sim);
+        _leaderboard.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterTop, Control.LayoutPresetMode.Minsize, 70);
+
+        var podium = new PodiumOverlay();
+        AddChild(podium);
+        podium.Init(_sim);
+        podium.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterTop, Control.LayoutPresetMode.Minsize, 70);
+        podium.GrowHorizontal = Control.GrowDirection.Both;
+        _leaderboard.GrowHorizontal = Control.GrowDirection.Both;
+
         _help = BuildHelp();
         AddChild(_help);
 
-        _setup.Visible = _telemetry.Visible = _comparison.Visible = _help.Visible = false;
+        _setup.Visible = _telemetry.Visible = _comparison.Visible = _leaderboard.Visible = _help.Visible = false;
 
         // `-- --show-panels=setup,telemetry,compare,help` (screenshots / self-test).
         foreach (var a in OS.GetCmdlineUserArgs())
@@ -52,6 +65,7 @@ public partial class UiRoot : CanvasLayer
             if (!a.StartsWith("--show-panels=")) continue;
             var set = a["--show-panels=".Length..].Split(',');
             ShowPanels(set.Contains("setup"), set.Contains("telemetry"), set.Contains("compare"));
+            _leaderboard.Visible = set.Contains("leaderboard");
             _help.Visible = set.Contains("help");
         }
     }
@@ -89,6 +103,7 @@ public partial class UiRoot : CanvasLayer
             "Tab                 vehicle setup panel",
             "F2                  telemetry dashboard",
             "F3                  run comparison",
+            "F4                  best laps: all-time top 10 with podium photos (webcam)",
             "Esc                 main menu",
             "",
             "Reverse (R1, GS6-55BG ratio 3.143) needs the dynamic model (E4, default).",
@@ -115,6 +130,7 @@ public partial class UiRoot : CanvasLayer
         }
         if (Input.IsActionJustPressed(InputSetup.ToggleTelemetry)) _telemetry.Visible = !_telemetry.Visible;
         if (Input.IsActionJustPressed(InputSetup.ToggleComparison)) _comparison.Visible = !_comparison.Visible;
+        if (Input.IsActionJustPressed(InputSetup.ToggleLeaderboard)) _leaderboard.Visible = !_leaderboard.Visible;
         if (Input.IsActionJustPressed(InputSetup.ToggleHelp)) _help.Visible = !_help.Visible;
     }
 

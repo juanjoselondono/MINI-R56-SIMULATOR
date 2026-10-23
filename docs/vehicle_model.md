@@ -720,15 +720,15 @@ Every value is an engineering estimate unless a regulation or a measurement is n
 | CG to rear axle c, CG height h | 0.45 L = 1.638 m, 0.28 m | 45 % front weight (2019 cars: about 44–46 %), estimate |
 | Tyre radius R_w | 0.330 m | 660 mm 2019 tyres (13″ rim + 305 mm × 54.1 % sidewall) |
 | μ | 1.6 | warm dry slicks, estimate |
-| C_d A, C_l A, aero balance | 0.75 × 1.5 = 1.13 m², 3.0 × 1.5 = 4.5 m², 38 % front (rear-biased) | estimate (L/D = 4); balance from the corner-exit study §27 |
+| C_d A, C_l A, aero balance | 0.75 × 1.5 = 1.13 m², 3.0 × 1.5 = 4.5 m², 47 % front | estimate (L/D = 4); balance from the corner-entry study §28 (was 38 %, §27) |
 | Power unit | torque table 350–680 N·m over 4000–12500 rpm, 703 kW peak at about 11 000 rpm | ICE + MGU-K at the crank, estimate |
 | Gears, final drive, η | 8 gears 4.09 … 1.145, i_fd = 4.0 (1st ≈ 95 km/h, 8th ≈ 340 km/h at 12 500 rpm), 0.95 | estimate |
 | Rotating mass factors | (I_e (i_g i_fd/R_w)² + I_w/R_w²)/M with I_e = 0.08, I_w = 4.0 kg·m² | estimate, consistent with E5 |
 | Idle, fuel cut, money shift | 4000, 13 000, 15 500 rpm | estimate (2019 rev limit 15 000 rpm) |
 | Launch clutch (E5) | bite 9000 rpm, capacity 900 N·m, I_e 0.08 kg·m² | estimate |
-| Brakes | μ_b = 0.8 | model.m form μ_b μ (W + F_down); 0.8 instead of 0.9 because slick friction falls at the ~4× static tyre load at top speed. Gives about 6 g at 330 km/h (2019 cars: 5–6 g). |
+| Brakes | μ_b = 0.8, brake bias 56 % front | model.m form μ_b μ (W + F_down); 0.8 instead of 0.9 because slick friction falls at the ~4× static tyre load at top speed. Gives about 6 g at 330 km/h (2019 cars: 5–6 g). Bias: B1, §28 (estimate; real cars run roughly 55–60 % front). |
 | I_zz | 1200 kg·m² | estimate (M × (1.27 m)²) |
-| C_αf / C_αr | 180 000 / 320 000 N/rad | estimate: rear stiffer (405 mm rear vs 305 mm front tyres) |
+| C_αf / C_αr | 230 000 / 280 000 N/rad | estimate: rear stiffer (405 mm rear vs 305 mm front tyres), close to neutral in the linear range (§28; was 180 000 / 320 000) |
 | Rear grip factor | 1.10 | wider rear tyres, estimate (rear-axle μ multiplier) |
 | Engine braking | 50 N·m | estimate; 120 N·m gave 5.9 kN of rear braking in 1st gear, enough to spin on a lift |
 | Tyre load sensitivity, front roll share | 0.10, 0.55 | estimate |
@@ -737,11 +737,11 @@ Every value is an engineering estimate unless a regulation or a measurement is n
 | Traction control | on | driver aid, §26 |
 
 Resulting behaviour (unit tests):
-- 0–100 km/h in 2.69 s and 0–200 km/h in 4.78 s without traction control (with it: 3.49 s and 6.19 s);
+- 0–100 km/h in 2.42 s without traction control, 3.19 s with it (0–200 km/h 5.72 s);
 - 330 km/h after 60 s;
 - 6.1 g braking at top speed;
 - at 180 km/h: 6.9 kN of downforce (0.95 W) and 2.81 g of axle grip, against 1.60 g without aero;
-- Circuit reference lap 45.0 s (58.3 s without downforce; Mini 84.2 s).
+- Circuit reference lap 45.1 s (57.9 s without downforce; Mini 84.2 s).
 
 These are plausible for a 2019 car, but the profile has not been validated against any measured data.
 
@@ -754,7 +754,7 @@ $b$ (aero balance) acts on the front axle and $1-b$ on the rear. It enters every
 |---|---|---|
 | Axle loads (E4) | $F_{zf} = W c/L - \Delta$, $F_{zr} = W - F_{zf}$ | $F_{zf} + b F_{down}$, $F_{zr} + (1-b) F_{down}$, so each axle's friction circle $\mu_i F_{zi}$ grows with $v^2$ |
 | Traction limit $F_{x,max}$ | load of the driven axle | + its downforce share |
-| Brakes | $\mu_b \mu W$ | $\mu_b \mu (W + F_{down})$; the brake split follows the axle loads |
+| Brakes | $\mu_b \mu W$ | $\mu_b \mu (W + F_{down})$; the brake split follows the axle loads, or a fixed bias (B1, §28) |
 | Rolling resistance | $f_r W$ | $f_r (W + F_{down})$ |
 | Locked wheels (blown engine) | $\mu W$ | $\mu (W + F_{down})$ |
 
@@ -819,3 +819,80 @@ Changes:
 
 Result with TC on: peak yaw 0.82–0.95× neutral (understeer) at all three radii, before-throttle margin −0.45 … −0.71°.
 With TC off, the raw chassis still spins under full power (70–99× neutral).
+
+## 28. B1: brake bias, and the F1 corner entry (2026-10-22)
+
+**B1 brake bias.** `VehicleParameters.BrakeBiasFront` is the share of the brake force on the front axle. 0 (the default,
+the Mini, model.m runs) keeps model.m's split, proportional to the instantaneous axle loads:
+$F_{xf} = F_{brake} F_{zf}/(W + F_{down})$. A value in 0.3–0.8 fixes the split: $F_{xf} = b F_{brake}$,
+$F_{xr} = (1-b) F_{brake}$. Total brake force and deceleration are unchanged; what changes is how much of each axle's
+friction circle is left for the side force. A share below the front's load share under braking (about 60–65 % for the
+F1) leaves the front more lateral grip and asks more of the rear.
+
+**Problem.** Braking into a corner, the F1 ran wide: the front saturated first. Three causes:
+1. downforce 38 % front while the front carries 45 % of the weight: at speed the front axle had the smaller share of grip;
+2. C_αr / C_αf = 320k / 180k: strong linear understeer ($l_r/C_{αf} > l_f/C_{αr}$ by a factor 1.6);
+3. load-proportional brakes plus the rear grip factor 1.10: under braking the rear kept the larger lateral reserve.
+
+**Test** (`F1_CornerEntry_RotatesSlightlyUnderTrailBraking_AndRecovers`):
+- steady cornering at 85 % of the grip *including downforce* on R = 50 m and 150 m;
+- then the brake at 0.3 / 0.6 / 1.0 for 0.8 s with the steering held (no correction);
+- then the brake released for 2 s, still with the steering held.
+
+Measured: the peak yaw rate over the neutral-steer value $v\tan\delta/L$ (< 1 = runs wide, > 1 = rotates), the peak
+body slip angle β, and β after the release. It also records the user's criterion, the slip angle at which each axle's
+linear force reaches what its friction circle leaves laterally, $\alpha^*_i = F_{y,max,i}/C_{αi}$ with
+$F_{y,max,i} = \sqrt{g_i^2 - F_{xi}^2}$: $\alpha^*_r/\alpha^*_f < 1$ means the rear reaches its peak first.
+
+**Sweep** (bias 0.52–0.60 × aero balance 0.38–0.47 × C_α pairs). Findings:
+- in the linear range (0.6 μg) only C_α matters;
+- at the limit the aero balance removes the high-speed plow (R 150 m: yaw ratio 0.09 → 0.65 with 44 % front);
+- bias 0.52 spins at R 150 m under 0.6 brake (β 26–32°);
+- 0.56 rotates without spinning; 0.58 barely rotates.
+
+**Chosen:** bias 0.56, aero balance 0.47 front, C_α 230k / 280k. In the linear range this is about neutral:
+$l_r/C_{αf} = 7.12\cdot10^{-6}$ vs $l_f/C_{αr} = 7.15\cdot10^{-6}$, critical speed ≈ 250 m/s, far above the top speed.
+
+| R | brake | peak r / r_neutral | α*_r / α*_f | peak β | β after release | previous setup (0.6 brake) |
+|---|---|---|---|---|---|---|
+| 50 m | 0.3 | 1.02 | 0.96 | 0.6° | 0.6° | |
+| 50 m | 0.6 | 1.13 | 0.92 | 1.0° | 1.0° | 0.87 |
+| 50 m | 1.0 | 0.97 | – | 1.9° | | |
+| 150 m | 0.3 | 1.10 | 0.93 | 1.9° | 0.8° | |
+| 150 m | 0.6 | 1.27 | 0.92 | 2.1° | 0.5° | 0.08 |
+| 150 m | 1.0 | 0.98 | – | 2.2° | | |
+
+So trail braking rotates the car slightly (the rear peaks first) and it settles when the brake comes off. A stamped
+keyboard brake (1.0) uses up both friction circles and neither plows nor spins.
+
+**Corner exit** (§27) is still a slight understeer. Before the throttle α_r − α_f is −0.14 / −0.03 / −0.01° at
+R 12 / 40 / 100 m; with TC the full-throttle peak is 0.98 / 0.99 / 1.02 × neutral. The test bound is now ≤ 1.05.
+Scripted F1 lap on the Circuit: 54.56 s, valid, 0 impacts (was 55.63 s).
+
+All three levers are in the setup panel: brake bias (Braking), rear downforce share and C_α (Handling balance).
+
+## 29. Per-vehicle setup files (2026-10-22)
+
+`VehicleSetupStore` (core) keeps each vehicle's setups apart, under `user://configs/`:
+
+| File | Content |
+|---|---|
+| `setup_mini.json`, `setup_f1.json` | the car's current setup: written by Apply Setup, loaded when that car is selected (menu, setup panel) |
+| `mini/*.json`, `f1/*.json` | the car's named setups (Save / Load Configuration) |
+
+- **No cross-loading.** A file whose `Profile` names another vehicle is rejected, so a Mini setup can never be applied
+  to the F1 or the other way round.
+- **Missing keys.** They take the defaults of the profile the file names (`ConfigSerializer.FromJson`); before this
+  change they took model.m's, so an F1 file missing a key inherited a Mini value. A file without a `Profile` key keeps
+  model.m's defaults.
+- **Older files.** Configurations saved before the split (flat `*.json`) are moved once into the folder of the profile
+  they name.
+- **Test runs.** Command-line test modes always use the profile defaults, so their results do not depend on what the
+  player saved.
+- **Setup panel rows.** The panel lists only the parameters that act on the current car (`ParamEntry.Profiles`):
+  - *F1 only:* lift coefficient, rear downforce share, rear grip factor, brake bias, traction control (3 rows);
+  - *Mini only:* springs and spring spacings (they enter only the FWD traction limit of model.m §6), and the seed
+    launch rule and its clutch target;
+  - *neither:* the drive layout, which is the profile's identity, not a setup parameter.
+
+  Hidden parameters keep the profile's values.

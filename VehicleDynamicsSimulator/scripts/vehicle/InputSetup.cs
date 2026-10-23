@@ -23,6 +23,7 @@ public static class InputSetup
     public const string ToggleSetup = "toggle_setup_panel";
     public const string ToggleTelemetry = "toggle_telemetry_panel";
     public const string ToggleComparison = "toggle_comparison_panel";
+    public const string ToggleLeaderboard = "toggle_leaderboard_panel";
     public const string ToggleRecording = "toggle_recording";
     public const string ToggleHelp = "toggle_help";
     public const string Menu = "back_to_menu";
@@ -47,6 +48,7 @@ public static class InputSetup
         Add(ToggleSetup, Key(Godot.Key.Tab));
         Add(ToggleTelemetry, Key(Godot.Key.F2));
         Add(ToggleComparison, Key(Godot.Key.F3));
+        Add(ToggleLeaderboard, Key(Godot.Key.F4));
         Add(ToggleRecording, Key(Godot.Key.F5));
         Add(ToggleHelp, Key(Godot.Key.F1));
         Add(Menu, Key(Godot.Key.Escape));

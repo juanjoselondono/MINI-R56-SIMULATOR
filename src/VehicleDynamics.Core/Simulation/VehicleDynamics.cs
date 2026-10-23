@@ -732,7 +732,8 @@ public sealed class VehicleDynamics
             o.FBrake = fBrakeMax * brake;
             o.Ax = -(dir * o.FBrake + fRes) / o.MassEquivalent;
             o.FTractiveEff = 0;
-            fxF = -dir * o.FBrake * fzF / load;
+            // B1: fixed brake balance when set, otherwise model.m's load-proportional split.
+            fxF = p.BrakeBiasFront > 0 ? -dir * o.FBrake * p.BrakeBiasFront : -dir * o.FBrake * fzF / load;
             fxR = -dir * o.FBrake - fxF;
         }
         else if (throttle > p.ThrottleInputThreshold || !o.ClutchLocked)

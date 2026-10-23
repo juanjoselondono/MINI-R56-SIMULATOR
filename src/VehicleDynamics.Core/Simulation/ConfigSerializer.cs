@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace VehicleDynamics.Core.Simulation;
@@ -16,12 +17,23 @@ public static class ConfigSerializer
 
     public static string ToJson(VehicleParameters p) => JsonSerializer.Serialize(p, Options);
 
-    /// <summary>Parses and validates. Missing keys keep model.m defaults. Throws ArgumentException on any problem.</summary>
+    /// <summary>
+    /// Parses and validates. Missing keys keep the defaults of the file's vehicle profile when it names a known one
+    /// (an F1 file never inherits Mini values), otherwise model.m's. Throws ArgumentException on any problem.
+    /// </summary>
     public static VehicleParameters FromJson(string json)
     {
         VehicleParameters? p;
         try
         {
+            var node = JsonNode.Parse(json);
+            if (node is JsonObject obj && obj[nameof(VehicleParameters.Profile)] is JsonValue pv
+                && pv.TryGetValue<string>(out var profile) && VehicleProfiles.IsKnown(profile))
+            {
+                var merged = JsonNode.Parse(ToJson(VehicleProfiles.Create(profile)))!.AsObject();
+                foreach (var (key, value) in obj) merged[key] = value?.DeepClone();
+                json = merged.ToJsonString();
+            }
             p = JsonSerializer.Deserialize<VehicleParameters>(json, Options);
         }
         catch (JsonException ex)

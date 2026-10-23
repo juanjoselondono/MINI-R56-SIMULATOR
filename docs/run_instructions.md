@@ -125,6 +125,7 @@ oversteer. The readout above the list shows the resulting balance.
 | Tab | – | vehicle setup panel |
 | F2 | – | telemetry dashboard |
 | F3 | – | run comparison |
+| F4 | – | best laps: the all-time top 10 of this track and car, with podium photos |
 | F1 | – | controls help |
 | Esc | – | back to the main menu (unexported recordings of the session are discarded) |
 
@@ -154,8 +155,23 @@ While a text or number field has focus, driving keys and shortcuts are ignored. 
   buttons the panel shows derived values (R_w, K_φ, F_x,max, gear top speeds).
 
   The buttons are Apply Setup, Reset Parameters, Revert Edits, Reset Vehicle (recover to track), Pause/Resume and
-  Restart Simulation. Save/Load Configuration reads and writes `user://configs/*.json`. Saving stores the *applied*
-  parameters, and loading fills the editor; press Apply to use what you loaded.
+  Restart Simulation.
+
+  **Setups are per vehicle.**
+  - Apply Setup also saves the applied parameters as that car's own setup (`user://configs/setup_mini.json` or
+    `setup_f1.json`), which is loaded whenever that car is selected again.
+  - Save/Load Configuration reads and writes the car's own folder (`configs/mini/`, `configs/f1/`). Saving stores the
+    *applied* parameters, and loading fills the editor; press Apply to use what you loaded.
+  - A setup of the other car is never listed or loaded.
+  - The panel shows only the parameters that act on the current car: for example brake bias, downforce and traction
+    control for the F1, springs for the Mini.
+  - Reset Parameters followed by Apply returns the car to its factory defaults.
+  - Configurations saved before this version are moved automatically into the folder of the car they belong to.
+- **Best laps (F4).** For each track and car, the 10 fastest valid laps of all time, each with its podium photo, date,
+  and a "custom setup" tag when the parameters differed from the car's defaults. With **Podium photo** checked (the
+  default), a lap that makes the top 10 shows a banner with a live, mirrored webcam preview and a 3-second countdown,
+  then takes the photo. The camera is only open during the countdown, and photos stay on this computer. Uncheck the
+  box to never use the camera. Without a webcam, the time is recorded without a photo.
 - **Telemetry (F2).**
   - Live values of every available quantity, with units. Extension-derived values are tagged [E1]/[E2]/[E3], and
     quantities the model does not provide are listed as unavailable.
@@ -170,7 +186,8 @@ While a text or number field has focus, driving keys and shortcuts are ignored. 
 | What | Linux path |
 |---|---|
 | Telemetry CSV + parameter JSON | `~/.local/share/godot/app_userdata/R56 Vehicle Dynamics Simulator/runs/` |
-| Saved configurations | `~/.local/share/godot/app_userdata/R56 Vehicle Dynamics Simulator/configs/` |
+| Vehicle setups | `…/configs/setup_mini.json`, `setup_f1.json` (current), `configs/mini/`, `configs/f1/` (named) |
+| Best laps, podium photos | `…/leaderboard.json`, `…/leaderboard_photos/*.png`; the photo setting is in `…/settings.cfg` |
 
 The CSV columns are those of `docs/DESIGN_CONTRACT.md` §6. The `# key=value` header holds the track, start time,
 sample interval and every parameter. Events (shifts, impacts, laps, restarts, recoveries, parameter changes, engine
@@ -181,7 +198,8 @@ failure) are in the `event` column.
 These go after `--`. They skip the main menu.
 
 ```bash
-# In-game self-test on all tracks and both cars (53 checks), deterministic; exit code 0 = all pass
+# In-game self-test on all tracks and both cars (56 checks), deterministic; exit code 0 = all pass.
+# Test modes use the profile defaults (not your saved setups) and never write your best laps.
 $GODOT --headless --fixed-fps 60 --path . -- --selftest
 # Interactive start path without clicking (loading screen + background loading); --loading-shots=DIR saves it at 30/85 %
 $GODOT --path . -- --via-loading-screen --track=Monaco --vehicle=f1_2019
@@ -209,8 +227,17 @@ $GODOT --path . -- --track=Circuit --demo --perf=300
 # Racing line source: optimised (default), reference, or a telemetry CSV exported by the game (fastest valid lap)
 $GODOT --path . -- --track=Monaco --racing-line=$HOME/.local/share/godot/app_userdata/R56\ Vehicle\ Dynamics\ Simulator/runs/my_lap.csv
 
-# Open panels at start (screenshots): setup, telemetry, compare, help
+# Open panels at start (screenshots): setup, telemetry, compare, leaderboard, help
 $GODOT --path . -- --track=Oval --show-panels=setup,telemetry
+
+# Best laps + per-vehicle setup checks; --with-webcam takes a real photo (rendering run: no camera image in --headless)
+$GODOT --fixed-fps 60 --path . -- --selftest --selftest-only=Leaderboard --with-webcam
+
+# Show another best-laps file (read-only in test modes; photos in its folder's photos/)
+$GODOT --path . -- --track=Circuit --show-panels=leaderboard --leaderboard-file=/path/to/leaderboard.json
+
+# Main menu screenshot, then quit
+$GODOT --path . --resolution 1600x900 -- --menu-shot=/tmp/menu.png
 ```
 
 ### Vehicle model

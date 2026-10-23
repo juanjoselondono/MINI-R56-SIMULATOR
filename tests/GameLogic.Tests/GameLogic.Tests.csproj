@@ -26,6 +26,7 @@
   <ItemGroup>
     <Compile Include="..\..\VehicleDynamicsSimulator\scripts\audio\EngineSynth.cs" Link="Game\EngineSynth.cs" />
     <Compile Include="..\..\VehicleDynamicsSimulator\scripts\race\LapTimer.cs" Link="Game\LapTimer.cs" />
+    <Compile Include="..\..\VehicleDynamicsSimulator\scripts\race\Leaderboard.cs" Link="Game\Leaderboard.cs" />
     <Compile Include="..\..\VehicleDynamicsSimulator\scripts\vehicle\CollisionManager.cs" Link="Game\CollisionManager.cs" />
     <Compile Include="..\..\VehicleDynamicsSimulator\scripts\dev\CentrelineDriver.cs" Link="Game\CentrelineDriver.cs" />
   </ItemGroup>
