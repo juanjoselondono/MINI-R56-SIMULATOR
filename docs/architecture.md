@@ -129,9 +129,11 @@ So what you see is what you hit.
 | Godot collision shapes | `StaticBody3D` with the barrier faces (layer 2) | Used only by the chase camera's ray query, which keeps the camera in front of walls. |
 | Recovery | `RecoverToTrack`: explicit reset at rest on the nearest centreline point, engine damage kept, lap invalid | The model has no reverse gear, so a head-on stop needs this. |
 
-### 4.1 Converted mesh tracks (Monaco)
+### 4.1 Converted mesh tracks (Monaco, Nürburgring)
 
-`TrackManager.MeshTracks` maps a name to a scene (`scenes/TrackMonaco.tscn`). Its root is a `MeshTrack` with:
+`TrackManager.MeshTrackList` lists the converted tracks (`MeshTrackInfo`: name, scene, track JSON, physics OBJ, menu
+description); a track appears in the menu once its JSON exists. Each scene (`scenes/TrackMonaco.tscn`,
+`scenes/TrackNurburgring.tscn`) has a `MeshTrack` root with:
 - a `Visual` child: the rendered GLB;
 - one hidden `StaticBody3D` per surface of the physics OBJ, built at load with trimesh (`ConcavePolygonShape3D`) shapes
   and no mesh instance;
@@ -140,8 +142,8 @@ So what you see is what you hit.
 | Concern | Implementation |
 |---|---|
 | Reference line | `PolylineTrack` (core) from the AC racing line in `monaco_track.json`: s = 0 at the timing gate; track limits from the per-point edge distances. `TrackManager.Line` (`ITrackLine`) drives `LapTimer`, `RecoverToTrack`, the scripted driver and telemetry s/lateral. |
-| Collision layers | WALL → layer 2 (`BarrierCollisionLayer`, also used by the camera ray), TARMAC → layer 3, KERB → layer 4, vehicle trigger → layer 5. Each body has `surface` and `friction` metadata. |
-| Ground, surface, grade | `BeforeStep` → `MeshTrack.Sample`: 3 wheel rays (front axle centre, rear left, rear right) and a CG ray against layers 3–4. Gives height, normal, grade (→ `RoadGrade`, E6) and surface key → `surfaces.ini` friction (→ `SurfaceGrip`). Kerb wins if it lies on or above the tarmac (−0.15 m). A wheel off the mesh takes the mean height of the others. A CG ray that misses with all wheels on ground is a mesh seam (TARMAC); otherwise OFFTRACK. |
+| Collision layers | By the key's class (track JSON `class`; older JSON: WALL/KERB by name): wall → layer 2 (`BarrierCollisionLayer`, also used by the camera ray), road and grass → layer 3, kerb → layer 4, vehicle trigger → layer 5. Each body has `surface`, `class` and `friction` metadata (−1 = no surfaces.ini value). |
+| Ground, surface, grade | `BeforeStep` → `MeshTrack.Sample`: 3 wheel rays (front axle centre, rear left, rear right) and a CG ray against layers 3–4. Gives height, normal, grade (→ `RoadGrade`, E6) and the surface of the body the CG ray hits: its key, its class (→ `Surface`: road = Asphalt, kerb = Curb, grass = Grass) and its `surfaces.ini` friction (→ `SurfaceGrip`; 0 when the key has none, so the core uses its E2 grip factor for the class). Kerb wins if it lies on or above the road (−0.15 m). A wheel off the mesh takes the mean height of the others. A CG ray that misses with all wheels on ground is a mesh seam (previous surface); otherwise OFFTRACK (the track's OFFTRACK friction if it defines one, else grass). |
 | Walls | `CollisionManager(MeshTrack.WallContact)`: footprint box (3.76 × 1.68 × 1.0 m, 0.7 m above the ground) `CollideShape` against layer 2 → `BarrierContactResult` → the same E3 response as on procedural tracks. |
 | Rendering | `VehicleController.GroundPose` lifts and tilts the body onto the ground at the interpolated pose. This is a read-only query, so the physics does not depend on the frame rate (verified bit-identical at 30/60/144 fps). |
 | Teleports | `VehicleController.GroundSnap` → `MeshTrack.SnapToGround`: a full-height `RayCast3D` from above the track's bounds down to below them, against tarmac/kerb. It places the car and re-centres the per-step ground search, so restart and recover never float or sink. |

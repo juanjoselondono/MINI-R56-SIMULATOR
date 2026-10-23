@@ -66,7 +66,7 @@ public partial class MainMenu : Control
             {
                 "Oval" => $"model.m oval: 2 × 400 m straights, R80 semicircles — {Track.TrackManager.Create(name).Length:0.0} m",
                 "Circuit" => $"Road circuit: hairpin R28, sweepers R120–150, chicane — {Track.TrackManager.Create(name).Length:0} m",
-                _ => "Monaco street circuit — converted Assetto Corsa track (mesh surfaces, walls, elevation)",
+                _ => Track.TrackManager.MeshTracks[name].Description,
             };
             var b = UiTheme.Button($"{name}   ·   {desc}", () => { GameSession.TrackName = name; Start(); });
             b.Alignment = HorizontalAlignment.Left;

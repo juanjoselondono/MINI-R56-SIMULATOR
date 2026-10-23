@@ -198,13 +198,15 @@ failure) are in the `event` column.
 These go after `--`. They skip the main menu.
 
 ```bash
-# In-game self-test on all tracks and both cars (56 checks), deterministic; exit code 0 = all pass.
+# In-game self-test on all tracks and both cars (62 checks with Monaco and the Nürburgring converted), deterministic;
+# exit code 0 = all pass.
 # Test modes use the profile defaults (not your saved setups) and never write your best laps.
 $GODOT --headless --fixed-fps 60 --path . -- --selftest
 # Interactive start path without clicking (loading screen + background loading); --loading-shots=DIR saves it at 30/85 %
 $GODOT --path . -- --via-loading-screen --track=Monaco --vehicle=f1_2019
 
-# Only the Monaco suite (12 checks), e.g. after re-converting the track; --selftest-only=F1 runs the vehicle-profile suite
+# Only the Monaco suite (12 checks), e.g. after re-converting the track; --selftest-only=F1 runs the vehicle-profile suite;
+# --selftest-only=Nurburgring: grid, surface classes, μ per surface, racing line, a full scripted 25 km lap (~40 s)
 $GODOT --headless --fixed-fps 60 --path . -- --selftest --selftest-only=Monaco
 
 # Full throttle with auto-shift for N simulated seconds; prints the physical state and quits.
@@ -285,6 +287,42 @@ $GODOT --headless --import --path VehicleDynamicsSimulator
 
 The converter is deterministic: re-running it reproduces the same files.
 
+### Track conversion (Nürburgring 24h)
+
+The Assetto Corsa mod (Fenryr's *Nürburgring 24H*, v0.44) is in
+`VehicleDynamicsSimulator/assets/tracks/asw-nuerburgring-24h/fn_nurburgring/` (1.8 GB; `.gdignore` at
+`asw-nuerburgring-24h/`, not in git). It has two layouts (`24h`: Nordschleife + GP, 25.4 km; `nordschleife`:
+20.8 km); the game uses `24h`:
+
+```bash
+N=VehicleDynamicsSimulator/assets/tracks
+python3 -I tools/asset_pipeline/kn5_convert.py $N/asw-nuerburgring-24h/fn_nurburgring $N/nurburgring nurburgring --layout 24h
+$GODOT --headless --import --path "$PWD/VehicleDynamicsSimulator"    # absolute path: see Troubleshooting
+```
+
+| Output | Content |
+|---|---|
+| `nurburgring_visual.glb` | the 10 visual kn5 of `models_24h.ini` merged (terrain, GP, guardrails, vegetation, layout objects…): 7.9 M triangles, 2130 nodes, 385 MB. `marshals.kn5` is listed by the mod but not shipped (skipped). |
+| `textures/`, `materials/` | 270 textures (32 re-encoded as PNG), 300 materials, 880 MB |
+| `nurburgring_physics.obj` | `physics.kn5`: 23 surface keys, 0.94 M triangles (ASPH_NORDS 726k, ASPH-NURB 69k, GRASS 55k, KURB 28k, WALL 14k, …) |
+| `nurburgring_track.json` | 24 grid slots, 3 timing gates, racing line 16 401 points (`24h/ai/fast_lane.ai`), surfaces with class and friction |
+
+**Surfaces.** AC names a physics mesh `<digits><KEY>…`; the converter takes the longest key of the layout's
+`surfaces.ini` that the name starts with (`01ASPH-NURB006` → ASPH-NURB, `82KLEINEC` → 82KLEINEC), otherwise the leading
+capitals (`35ASPH_NORDS001` → ASPH_NORDS). Meshes without leading digits (`MARBLES*`) are not physical in AC and are
+skipped. Keys that the track's `surfaces.ini` does not define (ROAD, ASPH_NORDS, GRASS, SAND, RUMBLE, …) are AC's global
+surfaces, whose values live in the AC installation, not in the track: they are stored without friction and the game
+uses its own E2 factors by class (road 1.0, kerb 0.95, grass/sand/gravel 0.6 with 4× rolling resistance).
+
+Measured (RTX 3050 6 GB laptop, 1600 × 900, High preset): conversion 25 s (0.8 GB RAM), Godot import 54 s (3.5 GB
+RAM), session load 8.8 s from the command line / 11.0 s through the menu's loading screen (longest frame 144 ms), the
+racing-line optimisation 47 s the first time for each car width (then from the disk cache), 162 fps average in the
+scripted demo (Monaco: 158 fps), 1.8 GB VRAM, 2.1 GB RAM. Known visual limitation: the road uses AC's multilayer shader
+(`ksMultilayer_fresnel_nm`); only its base texture is converted, so the asphalt renders lighter than in AC.
+
+To add the other layout, convert it to its own folder (`--layout nordschleife`, name `nordschleife`), copy
+`scenes/TrackNurburgring.tscn` with the new paths and add a `MeshTrackInfo` line in `TrackManager.MeshTrackList`.
+
 ## 5. Troubleshooting
 
 | Symptom | Cause / fix |
@@ -293,3 +331,4 @@ The converter is deterministic: re-running it reproduces the same files.
 | Shell hangs after a MATLAB command | stdin/stdout not redirected (see §3). |
 | Log shows `llvmpipe` as the Vulkan device | Godot fell back to software rendering. Run from a desktop session with the NVIDIA driver active. To force the GPU on hybrid laptops: `__NV_PRIME_RENDER_OFFLOAD=1 __VK_LAYER_NV_optimus=NVIDIA_only $GODOT --path .` |
 | Meshes missing or pink after cloning | the import step of §4 was not run. |
+| `--import` never finishes, 0 % CPU | Godot did not find the project (`--path` relative to another directory) and waits on an error dialog ("no main scene"). Close it and pass an absolute `--path`. |

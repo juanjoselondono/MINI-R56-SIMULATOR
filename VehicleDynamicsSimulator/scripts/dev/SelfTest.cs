@@ -68,7 +68,16 @@ public partial class SelfTest : Node
             await Frames(2);
             // --selftest-only=Monaco runs just the converted-track suite (quick check after re-converting assets).
             bool monacoOnly = OS.GetCmdlineUserArgs().Contains("--selftest-only=Monaco"), boardOnly = false;
-            if (OS.GetCmdlineUserArgs().Contains("--selftest-only=Leaderboard"))
+            if (OS.GetCmdlineUserArgs().Contains("--selftest-only=Nurburgring"))
+            {
+                _track = "Nurb";
+                _sim.LoadTrack("Nurburgring");
+                await Frames(2);
+                await ConvertedTrackSuite();
+                monacoOnly = true;
+                boardOnly = true;
+            }
+            else if (OS.GetCmdlineUserArgs().Contains("--selftest-only=Leaderboard"))
             {
                 // Best laps and per-vehicle setups only; add --with-webcam to take a real photo through the camera.
                 _track = "board";
@@ -101,6 +110,14 @@ public partial class SelfTest : Node
                 _sim.LoadTrack("Circuit");
                 await Frames(2);
                 await VehicleProfileSuite();
+            }
+            bool fullRun = !OS.GetCmdlineUserArgs().Any(x => x.StartsWith("--selftest-only="));
+            if (fullRun && TrackManager.Available.Contains("Nurburgring"))
+            {
+                _track = "Nurb";
+                _sim.LoadTrack("Nurburgring");
+                await Frames(2);
+                await ConvertedTrackSuite();
             }
             if (boardOnly) { }
             else if (TrackManager.Available.Contains("Monaco"))
@@ -554,6 +571,93 @@ public partial class SelfTest : Node
 
     private double _referenceLap = double.NaN;
     private double _miniCircuitLineLap = double.NaN;
+
+    /// <summary>
+    /// Any converted track (written for the Nürburgring: many surface keys, some without a surfaces.ini friction, 25 km):
+    /// grid and ground, surface classes on and beyond the track, μ actually applied per surface, racing line, and a
+    /// scripted lap on the AC line with the Mini.
+    /// </summary>
+    private async Task ConvertedTrackSuite()
+    {
+        var mesh = _sim.Track.Mesh!;
+        var line = _sim.Track.Line;
+        var s0 = D.State;
+        await Frames(2);
+        var g0 = mesh.Sample(s0.X, s0.Y, s0.Psi, V.Parameters);
+        // AC grid dummies stand up to ~1.5 m above the road (Nürburgring 1.3 m, Monaco 0.6 m).
+        Check("grid: ground and road surface", g0.Hit && Math.Abs(g0.Height - mesh.SpawnHeight) < 2.0 && mesh.SurfaceClasses.GetValueOrDefault(g0.SurfaceKey) == "road"
+                && Math.Abs(V.GlobalPosition.Y - g0.Height) < 1e-3,
+            $"h={F(g0.Height, "0.00")} m (AC grid {F(mesh.SpawnHeight, "0.00")} m), surface {g0.SurfaceKey}, μ factor {F(g0.Grip)} (0 = E2 class factor); {mesh.SurfaceClasses.Count} surface keys, road μ {F(mesh.RoadFriction)}");
+
+        // Surface classes: on the line (road or kerb) and 6 m beyond each AC edge (grass, sand, run-off...), every 25 m.
+        int onRoad = 0, onTotal = 0;
+        var outside = new Dictionary<string, int>();
+        for (double sp = 0; sp < line.Length; sp += 25)
+        {
+            var pose = line.Pose(sp);
+            mesh.SnapToGround(pose.X, pose.Y);
+            var c = mesh.Sample(pose.X, pose.Y, pose.Psi, V.Parameters, updateHint: false);
+            onTotal++;
+            if (c.Hit && mesh.SurfaceClasses.GetValueOrDefault(c.SurfaceKey) is "road" or "kerb") onRoad++;
+            var (left, right) = line.Limits(sp);
+            foreach (double lat in new[] { left + 6, -right - 6 })
+            {
+                var (px, py) = line.PointAt(sp, lat);
+                var o = mesh.Sample(px, py, pose.Psi, V.Parameters, updateHint: false);
+                string cls = o.SurfaceKey == "OFFTRACK" ? "beyond mesh" : mesh.SurfaceClasses.GetValueOrDefault(o.SurfaceKey, "?");
+                outside[cls] = outside.GetValueOrDefault(cls) + 1;
+            }
+        }
+        _sim.RestartSimulation();
+        await Frames(2);
+        Check("surface classes on / beside the track", onRoad > 0.97 * onTotal && outside.GetValueOrDefault("grass") > 0,
+            $"line: {onRoad}/{onTotal} road or kerb; 6 m beyond the edges: {string.Join(", ", outside.OrderByDescending(k => k.Value).Select(k => $"{k.Key} {k.Value}"))}");
+
+        var rl = _sim.RacingLine;
+        var (acc, coast, brk) = rl.ZoneShares();
+        Check("racing line (reference lap)", rl.Points.Length > 1000 && acc > 0.05 && brk > 0.02 && rl.LapTime > 300 && rl.LapTime < 900,
+            $"{_sim.RacingLineInfo}: {rl.Points.Length} points; accelerate {F(acc * 100, "0")} %, coast {F(coast * 100, "0")} %, brake {F(brk * 100, "0")} %; reference lap {SimulationManager.FormatTime(rl.LapTime)} (quasi-steady estimate)");
+
+        // Scripted lap on the AC line: surfaces seen, μ applied (surfaces.ini value, or the E2 class factor), elevation.
+        _sim.RestartSimulation();
+        var driver = new CentrelineDriver(_sim.Track.Line) { LateralMargin = 0.6 };
+        V.AutoShift = true;
+        V.Autopilot = vc => driver.Drive(vc.Dynamics.State, vc.Dynamics.Outputs, vc.Parameters);
+        var keys = new Dictionary<string, int>();
+        var beyond = new SortedDictionary<int, double>();   // 100 m bucket → time beyond the AC limits [s]
+        double minH = double.MaxValue, maxH = double.MinValue, maxGrade = 0, gripMismatch = 0;
+        var prevAfter = V.AfterStep;
+        V.AfterStep = (d, u) =>
+        {
+            prevAfter?.Invoke(d, u);
+            var pr = _sim.Laps.Projection;
+            var (lim, rim) = line.Limits(pr.S);
+            if (pr.Lateral > lim || pr.Lateral < -rim) beyond[(int)(pr.S / 100)] = beyond.GetValueOrDefault((int)(pr.S / 100)) + d.Parameters.Dt;
+            if (_sim.CurrentGround is not { Hit: true } g) return;
+            keys[g.SurfaceKey] = keys.GetValueOrDefault(g.SurfaceKey) + 1;
+            minH = Math.Min(minH, g.Height); maxH = Math.Max(maxH, g.Height);
+            maxGrade = Math.Max(maxGrade, Math.Abs(u.RoadGrade));
+            double factor = g.Grip > 0 ? g.Grip : d.Parameters.GripFactor(g.Surface);
+            gripMismatch = Math.Max(gripMismatch, Math.Abs(d.Outputs.FxMax - TractionLimit.FxMax(d.Parameters, d.Parameters.Mu * factor, d.Parameters.Theta + g.Grade)));
+        };
+        int imp0 = _sim.Collisions.ImpulseCount;
+        ulong wall0 = Time.GetTicksMsec();
+        bool lap = await Until(() => _sim.Laps.Laps.Count > 0, 1500);
+        V.AfterStep = prevAfter;
+        V.Autopilot = null;
+        V.AutoShift = false;
+        var rec = lap ? _sim.Laps.Laps[0] : default;
+        if (beyond.Count > 0)
+            GD.Print("[selftest] beyond the AC limits (s bucket m: seconds): " + string.Join(", ", beyond.OrderByDescending(kv => kv.Value).Take(12).Select(kv => $"{kv.Key * 100}: {kv.Value:0.00}")));
+        Check("scripted lap on the AC line", lap && rec.Valid,
+            lap ? $"lap {SimulationManager.FormatTime(rec.Time)} over {F(line.Length, "0")} m, valid={rec.Valid}, wall impacts={_sim.Collisions.ImpulseCount - imp0} ({F((Time.GetTicksMsec() - wall0) / 1000.0, "0")} s wall time)"
+                : $"no lap within 1500 s; reached s={F(_sim.Laps.Projection.S, "0")} m");
+        Check("mesh surfaces → μ (E2)", keys.Count >= 2 && gripMismatch < 1e-6,
+            $"steps per surface: {string.Join(", ", keys.OrderByDescending(k => k.Value).Select(k => $"{k.Key} {k.Value}"))}; max |F_x,max − μ·factor·F_z| = {gripMismatch:E1} N");
+        Check("elevation + grade (E6)", maxH - minH > 100 && maxGrade > 0.05 && maxGrade < 0.3,
+            $"ground height {F(minH, "0.0")}…{F(maxH, "0.0")} m, max |grade| {F(maxGrade * 100, "0.0")} %");
+        _sim.RestartSimulation();
+    }
 
     /// <summary>
     /// Vehicle profiles: swap to the provisional F1 (3D model, footprint, RWD, downforce), drive a lap on its racing line,

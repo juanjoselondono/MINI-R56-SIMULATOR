@@ -34,16 +34,32 @@ public partial class TrackManager : Node3D
     public (double X, double Y, double Psi) SpawnPose { get; private set; }
     public Aabb Bounds { get; private set; }
 
-    /// <summary>Scenes of converted mesh tracks, by name, and the converted data each needs.</summary>
-    public static readonly Dictionary<string, string> MeshTracks = new() { ["Monaco"] = "res://scenes/TrackMonaco.tscn" };
-    private static readonly Dictionary<string, string> MeshTrackData = new() { ["Monaco"] = "res://assets/tracks/monaco/monaco_track.json" };
-    private static readonly Dictionary<string, string> MeshTrackPhysics = new() { ["Monaco"] = "res://assets/tracks/monaco/monaco_physics.obj" };
+    /// <summary>A converted Assetto Corsa track: its scene (MeshTrack + visual GLB) and the converted data it needs.</summary>
+    public sealed record MeshTrackInfo(string Name, string Scene, string Data, string Physics, string Description);
+
+    /// <summary>
+    /// Converted tracks. To add one: convert it (tools/asset_pipeline/kn5_convert.py → assets/tracks/&lt;name&gt;/), give it
+    /// a scene like scenes/TrackMonaco.tscn (MeshTrack script, DataPath/PhysicsMeshPath, the visual GLB as child
+    /// "Visual") and list it here. It appears in the menu once its data file exists.
+    /// </summary>
+    public static readonly MeshTrackInfo[] MeshTrackList =
+    {
+        new("Monaco", "res://scenes/TrackMonaco.tscn", "res://assets/tracks/monaco/monaco_track.json",
+            "res://assets/tracks/monaco/monaco_physics.obj",
+            "Monaco street circuit — converted Assetto Corsa track (mesh surfaces, walls, elevation)"),
+        new("Nurburgring", "res://scenes/TrackNurburgring.tscn", "res://assets/tracks/nurburgring/nurburgring_track.json",
+            "res://assets/tracks/nurburgring/nurburgring_physics.obj",
+            "Nürburgring 24h (Nordschleife + GP) — converted Assetto Corsa track, 25.4 km"),
+    };
+
+    public static readonly Dictionary<string, MeshTrackInfo> MeshTracks = MeshTrackList.ToDictionary(t => t.Name);
 
     /// <summary>Heavy resources of a track (scene with its visual GLB, physics mesh) for background loading.</summary>
     public static IEnumerable<string> ResourcesFor(string name)
     {
-        if (MeshTracks.TryGetValue(name, out var scene)) yield return scene;
-        if (MeshTrackPhysics.TryGetValue(name, out var physics)) yield return physics;
+        if (!MeshTracks.TryGetValue(name, out var t)) yield break;
+        yield return t.Scene;
+        yield return t.Physics;
     }
 
     /// <summary>
@@ -51,7 +67,7 @@ public partial class TrackManager : Node3D
     /// tools/asset_pipeline/kn5_convert.py and are not in version control).
     /// </summary>
     public static readonly string[] Available = new[] { "Circuit", "Oval" }
-        .Concat(MeshTrackData.Where(kv => FileAccess.FileExists(kv.Value)).Select(kv => kv.Key)).ToArray();
+        .Concat(MeshTrackList.Where(t => FileAccess.FileExists(t.Data)).Select(t => t.Name)).ToArray();
 
     public static TrackGeometry Create(string name) => name switch
     {
@@ -73,8 +89,9 @@ public partial class TrackManager : Node3D
         foreach (var child in GetChildren()) { RemoveChild(child); child.QueueFree(); }
         TrackName = name;
         Mesh = null;
-        if (MeshTracks.TryGetValue(name, out var scenePath))
+        if (MeshTracks.TryGetValue(name, out var info))
         {
+            string scenePath = info.Scene;
             if (!Available.Contains(name))
                 throw new InvalidOperationException($"Track '{name}' is not converted yet: run tools/asset_pipeline/kn5_convert.py (docs/run_instructions.md).");
             Geometry = null;

@@ -72,7 +72,7 @@ public partial class RacingLine : MeshInstance3D
                 int i = (int)Math.Round(line.NormalizeS(s) / ds) % n;
                 return Math.Atan2(h[(i + 2) % n] - h[(i - 2 + n) % n], 4 * ds);
             };
-        double grip = mesh?.Friction.GetValueOrDefault("TARMAC", 1.0) ?? 1.0;
+        double grip = mesh?.RoadFriction ?? 1.0;
         Points = ReferenceLap.Compute(line, p, spacing: 2.0, grade: grade, gripFactor: grip);
         LapTime = ReferenceLap.LapTime(Points, line.Length);
 

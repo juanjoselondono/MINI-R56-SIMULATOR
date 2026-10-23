@@ -140,6 +140,35 @@ public class LapTimerTests
         Assert.Equal(2, lt.Lap);
     }
 
+    /// <summary>Drives one lap at 20 m/s, <paramref name="offAt"/> = lateral offset [m] as a function of s.</summary>
+    private static LapRecord DriveLap(TrackGeometry t, Func<double, double> offAt)
+    {
+        var lt = new LapTimer(t);
+        double dt = 0.05, L = t.Length;
+        lt.AfterStep(At(t, 0, 0, 0), dt);
+        for (double s = 1; s <= L + 10; s += 1)   // 1 m per 0.05 s step
+        {
+            var (x, y) = t.PointAt(t.NormalizeS(s), offAt(s));
+            var st = VehicleState.AtRest(x, y, t.Pose(t.NormalizeS(s)).Psi);
+            st.V = 20;
+            st.Time = s / 20;
+            lt.AfterStep(st, dt);
+        }
+        return Assert.Single(lt.Laps);
+    }
+
+    [Fact]
+    public void OffTrack_InvalidatesOnlyAOneSecondExcursion_NotBriefOnesAddingUp()
+    {
+        var t = TrackLibrary.Oval();
+        double wide = t.Limits(0).Left + 3;
+        // Three 0.6 s excursions (12 m at 20 m/s): 1.8 s in total, none longer than 1 s → valid.
+        bool Brief(double s) => s is > 300 and < 312 or > 600 and < 612 or > 900 and < 912;
+        Assert.True(DriveLap(t, s => Brief(s) ? wide : 0).Valid);
+        // One 1.5 s excursion (30 m) → cutting → invalid.
+        Assert.False(DriveLap(t, s => s is > 500 and < 530 ? wide : 0).Valid);
+    }
+
     [Fact]
     public void BackwardsCrossingAndCutting_DoNotCompleteALap()
     {

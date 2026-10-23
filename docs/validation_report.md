@@ -830,3 +830,27 @@ defaults for missing keys, migration of flat configurations.
 - Self-test `--selftest-only=Leaderboard --with-webcam` (rendering run): 4/4, including a 1280 × 720 photo from the
   integrated camera through CameraServer → CameraTexture, saved as PNG and read back. In `--headless` runs the
   CameraTexture has no image (dummy renderer), so the full self-test does not use the camera.
+
+## 22. Nürburgring 24h (converted Assetto Corsa track, 2026-10-23)
+
+Unit tests `VehicleDynamics.Tests` **154/154**, `GameLogic.Tests` **15/15**; self-test **62/62** (new suite for the
+Nürburgring; Monaco unchanged: lap 190.19 s, TARMAC μ 0.99).
+
+| Check (`--selftest-only=Nurburgring`) | Result |
+|---|---|
+| Grid | ground at 138.21 m under the AC grid dummy (139.55 m: AC places it 1.3 m up), surface ASPH-NURB μ 0.98 |
+| Surface classes | 1008/1008 stations of the line on road or kerb; 6 m beyond the edges: grass 511, beyond the physics mesh 1408, road 88, kerb 9 |
+| μ per surface | Mini lap: ASPH_NORDS 157 243 steps, ASPH-NURB 37 717, CAROUSEL, ROAD, KURB, 82KLEINEC, GRASS, XBLOCK, CURB; F_x,max matches μ × (surfaces.ini value, or the E2 class factor when the key has none) exactly |
+| Elevation | ground −146.4…146.7 m, max grade 16.7 % |
+| Racing line | minimum-curvature line, 12 560 points; reference lap 12:17.0 (quasi-steady estimate) |
+| Scripted lap (AC line, Mini) | 16:44.692 over 25 178 m, valid, 0 wall impacts |
+
+**Lap-validity rule.** The first scripted lap was invalid with three brief excursions past the AC edge at apexes
+(0.80 s at s ≈ 24.5 km, the GP chicane where the AC line runs 1.0–1.4 m from the edge; 0.36 s; 0.03 s). The off-track
+time was accumulated over the whole lap, so on 25 km harmless brushes added up to more than the 1 s allowance. It is now
+per excursion: one continuous stay beyond the limits longer than 1 s invalidates the lap (`LapTimer`; test
+`OffTrack_InvalidatesOnlyAOneSecondExcursion_NotBriefOnesAddingUp`).
+
+**Converter.** Monaco re-converted with the generalised `kn5_convert.py`: GLB, physics OBJ, racing line, grid and gates
+byte-identical; the JSON only gains the surface class. Three Nürburgring textures with block-compressed sizes that are
+not multiples of 4 (2127 × 591, 139 × 128, 128 × 2045) failed in Godot and are now re-encoded as PNG.

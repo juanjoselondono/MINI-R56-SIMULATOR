@@ -13,9 +13,12 @@ public readonly record struct GroundSample(bool Hit, float Height, Vector3 Up, S
 
 /// <summary>
 /// A track converted from Assetto Corsa (tools/asset_pipeline/kn5_convert.py): the visual GLB is rendered as is, and the
-/// low-poly physics OBJ becomes one hidden StaticBody3D per surface key (trimesh shapes, never rendered):
-/// WALL on <see cref="TrackManager.BarrierCollisionLayer"/>, TARMAC on <see cref="TarmacLayer"/>, KERB on
-/// <see cref="KerbLayer"/>. Each body carries "surface" and "friction" (surfaces.ini) metadata.
+/// low-poly physics OBJ becomes one hidden StaticBody3D per surface key (trimesh shapes, never rendered), on a layer by
+/// the key's class (track JSON "class"): wall → <see cref="TrackManager.BarrierCollisionLayer"/>, kerb →
+/// <see cref="KerbLayer"/>, road and grass → <see cref="TarmacLayer"/> (both drivable). Each body carries "surface",
+/// "class" and "friction" (surfaces.ini; −1 when the key is one of AC's global surfaces without a value in the track,
+/// then the core uses its own E2 grip factor for the class).
+/// The ground query reads the surface of the body it hits, so every key keeps its own friction.
 /// The vehicle dynamics core never sees the meshes; per physics step this node answers two questions with ray/shape
 /// queries: the ground under the car (surface → μ, local grade, height/attitude) and wall contacts (→ E3 response).
 /// </summary>
@@ -36,11 +39,20 @@ public partial class MeshTrack : Node3D
     public Vector3 GateLeft { get; private set; }
     public Vector3 GateRight { get; private set; }
     public IReadOnlyDictionary<string, double> Friction => _friction;
+    /// <summary>Surface class per key: road, kerb, grass or wall.</summary>
+    public IReadOnlyDictionary<string, string> SurfaceClasses => _classes;
+    /// <summary>
+    /// Friction of the main road surface (the road-class key with the most collision triangles), for the reference lap;
+    /// 1 when that key has no surfaces.ini value. Monaco: TARMAC.
+    /// </summary>
+    public double RoadFriction { get; private set; } = 1.0;
     public Aabb Bounds { get; private set; }
     /// <summary>Raised when the vehicle's trigger volume enters the start/finish Area3D (Godot physics tick).</summary>
     public event Action? StartFinishEntered;
 
     private readonly Dictionary<string, double> _friction = new();
+    private readonly Dictionary<string, string> _classes = new();
+    private string _lastKey = "";
     private BoxShape3D _footprint = new();
     private PhysicsShapeQueryParameters3D _wallQuery = new();
     private float _groundHeight;
@@ -52,7 +64,13 @@ public partial class MeshTrack : Node3D
         var data = Json.ParseString(FileAccess.GetFileAsString(DataPath)).AsGodotDictionary();
         DisplayName = data["name"].AsString();
         foreach (var (key, value) in data["surfaces"].AsGodotDictionary())
-            _friction[key.AsString()] = value.AsGodotDictionary()["friction"].AsDouble();
+        {
+            var d = value.AsGodotDictionary();
+            string k = key.AsString();
+            if (d["friction"].VariantType != Variant.Type.Nil) _friction[k] = d["friction"].AsDouble();
+            // Tracks converted before surface classes existed (Monaco): only WALL and KERB are special.
+            _classes[k] = d.ContainsKey("class") ? d["class"].AsString() : k == "WALL" ? "wall" : k == "KERB" ? "kerb" : "road";
+        }
 
         // Racing line in the model frame (X = x, Y = -z); s = 0 at the start/finish gate (converter re-indexed it).
         var line = data["racing_line"].AsGodotDictionary();
@@ -166,6 +184,10 @@ public partial class MeshTrack : Node3D
         return h;
     }
 
+    private string ClassOf(string key) => _classes.GetValueOrDefault(key, key == "WALL" ? "wall" : key == "KERB" ? "kerb" : "road");
+
+    private static Surface SurfaceOf(string cls) => cls switch { "kerb" => Surface.Curb, "grass" => Surface.Grass, _ => Surface.Asphalt };
+
     private static Vector3 ToVector(Variant v)
     {
         var a = v.AsFloat64Array();
@@ -175,6 +197,7 @@ public partial class MeshTrack : Node3D
     private void BuildCollision()
     {
         var mesh = GD.Load<ArrayMesh>(PhysicsMeshPath);
+        int roadTriangles = 0;
         for (int i = 0; i < mesh.GetSurfaceCount(); i++)
         {
             string key = mesh.SurfaceGetName(i);
@@ -183,10 +206,17 @@ public partial class MeshTrack : Node3D
             var index = arrays[(int)Mesh.ArrayType.Index].AsInt32Array();
             var faces = new Vector3[index.Length];
             for (int k = 0; k < index.Length; k++) faces[k] = verts[index[k]];
-            uint layer = key switch { "WALL" => TrackManager.BarrierCollisionLayer, "KERB" => KerbLayer, _ => TarmacLayer };
+            string cls = ClassOf(key);
+            uint layer = cls switch { "wall" => TrackManager.BarrierCollisionLayer, "kerb" => KerbLayer, _ => TarmacLayer };
+            if (cls == "road" && index.Length / 3 > roadTriangles)
+            {
+                roadTriangles = index.Length / 3;
+                RoadFriction = _friction.GetValueOrDefault(key, 1.0);
+            }
             var body = new StaticBody3D { Name = $"Physics_{key}", CollisionLayer = layer, CollisionMask = 0 };
             body.SetMeta("surface", key);
-            body.SetMeta("friction", _friction.TryGetValue(key, out var mu) ? mu : 1.0);
+            body.SetMeta("class", cls);
+            body.SetMeta("friction", _friction.TryGetValue(key, out var mu) ? mu : -1.0);
             body.AddChild(new CollisionShape3D { Shape = new ConcavePolygonShape3D { Data = faces, BackfaceCollision = true } });
             AddChild(body);
         }
@@ -279,7 +309,7 @@ public partial class MeshTrack : Node3D
             return retry;
         }
         if (found.Length == 0)
-            return new GroundSample(false, _groundHeight, Vector3.Up, Surface.Asphalt, "OFFTRACK", Friction.GetValueOrDefault("OFFTRACK", 1), 0);
+            return OffTrack(false, _groundHeight, Vector3.Up, 0);
         float fill = found.Average();
         float hf = hFront ?? fill, hl = hRearL ?? fill, hr = hRearR ?? fill;
 
@@ -293,13 +323,33 @@ public partial class MeshTrack : Node3D
         if (updateHint) _groundHeight = hCg;
         double grade = Math.Atan2(hf - rearMid, p.Wheelbase);
 
-        float? tarmac = Height(0, 0, TarmacLayer), kerb = Height(0, 0, KerbLayer);
-        // A CG ray that misses while all three wheels have ground is a seam in the AC mesh, not off-track.
-        string key = kerb is { } k && (tarmac is not { } t || k >= t - 0.15f) ? "KERB"
-            : tarmac.HasValue || found.Length == 3 ? "TARMAC" : "OFFTRACK";
-        var surface = key == "KERB" ? Surface.Curb : Surface.Asphalt;
-        return new GroundSample(true, hCg, up, surface, key, Friction.GetValueOrDefault(key, 1), grade);
+        // Surface under the CG: the body hit (its key, class and friction). A kerb lying on top of the road wins.
+        var tarmacHit = Ray(At(0, 0, top), At(0, 0, bottom), TarmacLayer);
+        var kerbHit = Ray(At(0, 0, top), At(0, 0, bottom), KerbLayer);
+        float? tarmac = tarmacHit.Count > 0 ? ((Vector3)tarmacHit["position"]).Y : null;
+        float? kerb = kerbHit.Count > 0 ? ((Vector3)kerbHit["position"]).Y : null;
+        var hit = kerb is { } k && (tarmac is not { } t || k >= t - 0.15f) ? kerbHit : tarmac.HasValue ? tarmacHit : null;
+        string key;
+        if (hit != null && hit["collider"].AsGodotObject() is Node body && body.HasMeta("surface"))
+            key = body.GetMeta("surface").AsString();
+        else if (found.Length == 3 && _lastKey != "")
+            key = _lastKey;   // a CG ray that misses while all three wheels have ground is a seam in the AC mesh
+        else
+            return OffTrack(true, hCg, up, grade);
+        if (updateHint) _lastKey = key;
+        string cls = ClassOf(key);
+        // No surfaces.ini friction (AC global key): 0 → the core's E2 grip factor of the surface class.
+        return new GroundSample(true, hCg, up, SurfaceOf(cls), key, _friction.GetValueOrDefault(key, 0), grade);
     }
+
+    /// <summary>
+    /// Beyond the AC physics mesh: the track's OFFTRACK surface if it defines one (Monaco: pavement, asphalt rolling
+    /// resistance), otherwise grass (E2 grass grip and rolling factors).
+    /// </summary>
+    private GroundSample OffTrack(bool hit, float height, Vector3 up, double grade)
+        => _friction.TryGetValue("OFFTRACK", out var mu)
+            ? new GroundSample(hit, height, up, Surface.Asphalt, "OFFTRACK", mu, grade)
+            : new GroundSample(hit, height, up, Surface.Grass, "OFFTRACK", 0, grade);
 
     /// <summary>
     /// Wall contact for the E3 collision response: the car's footprint box (body height above the ground) queried against
