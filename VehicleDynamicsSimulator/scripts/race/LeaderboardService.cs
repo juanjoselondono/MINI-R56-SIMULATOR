@@ -21,7 +21,7 @@ public sealed class PodiumMoment
 }
 
 /// <summary>
-/// All-time best laps of the game (<see cref="Leaderboard"/>, user://leaderboard.json): every valid lap is offered;
+/// All-time best laps of the game (<see cref="Leaderboard"/>, user://leaderboard.json): every completed lap is offered;
 /// one that makes its track + vehicle top 10 is stored and, with podium photos on, the webcam takes a photo after a
 /// 3-second countdown (user://leaderboard_photos/&lt;entry id&gt;.png), shown next to the time. Command-line test runs
 /// never touch the player's board (the self-test uses its own file, without the camera).
@@ -90,12 +90,12 @@ public partial class LeaderboardService : Node
     public string PhotoPath(LeaderboardEntry e) => Path.Combine(PhotosDirectory, e.Photo ?? "");
 
     /// <summary>
-    /// Offers a completed lap. Invalid laps and laps outside the top 10 are ignored. Returns the moment (rank, photo
+    /// Offers a completed lap (every lap counts). Laps outside the top 10 are ignored. Returns the moment (rank, photo
     /// state) when the lap made the board.
     /// </summary>
-    public PodiumMoment? Record(string track, VehicleParameters vehicle, double time, bool valid)
+    public PodiumMoment? Record(string track, VehicleParameters vehicle, double time)
     {
-        if (!Enabled || !valid) return null;
+        if (!Enabled) return null;
         bool custom = ConfigSerializer.ToJson(vehicle) != ConfigSerializer.ToJson(VehicleProfiles.Create(vehicle.Profile));
         if (Board.Submit(track, vehicle.Profile, time, DateTime.Now, custom) is not { } r) return null;
         foreach (var d in r.Dropped) DeletePhoto(d);

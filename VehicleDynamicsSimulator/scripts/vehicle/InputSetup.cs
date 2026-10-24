@@ -19,6 +19,7 @@ public static class InputSetup
     public const string ToggleRacingLine = "toggle_racing_line";
     public const string ToggleReverse = "toggle_reverse";
     public const string CycleGraphics = "cycle_graphics";
+    public const string ToggleMinimap = "toggle_minimap";
     public const string Recover = "recover_to_track";
     public const string ToggleSetup = "toggle_setup_panel";
     public const string ToggleTelemetry = "toggle_telemetry_panel";
@@ -43,7 +44,8 @@ public static class InputSetup
         Add(ToggleHeadlights, Key(Godot.Key.H));
         Add(ToggleRacingLine, Key(Godot.Key.L), Button(JoyButton.A), Button(JoyButton.DpadUp));
         Add(ToggleReverse, Key(Godot.Key.X), Button(JoyButton.X));
-        Add(CycleGraphics, Key(Godot.Key.F6));
+        Add(CycleGraphics, Key(Godot.Key.F7));
+        Add(ToggleMinimap, Key(Godot.Key.F6));
         Add(Recover, Key(Godot.Key.Backspace), Button(JoyButton.B));
         Add(ToggleSetup, Key(Godot.Key.Tab));
         Add(ToggleTelemetry, Key(Godot.Key.F2));

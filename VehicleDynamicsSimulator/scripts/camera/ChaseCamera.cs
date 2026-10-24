@@ -62,7 +62,7 @@ public partial class ChaseCamera : Camera3D
         Blur.Release();
     }
 
-    /// <summary>F6: next graphics preset.</summary>
+    /// <summary>F7: next graphics preset.</summary>
     public string CycleGraphics()
     {
         var next = GraphicsSettings.Next(GraphicsSettings.Current);

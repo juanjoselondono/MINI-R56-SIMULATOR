@@ -43,6 +43,8 @@ public static class GameSession
     public static bool StagedLoad { get; set; }
     /// <summary>Racing-line driver aid shown (L / A / D-pad up); kept across tracks and restarts.</summary>
     public static bool RacingLineVisible { get; set; } = true;
+    /// <summary>Track minimap shown (F6); kept across tracks and restarts.</summary>
+    public static bool MinimapVisible { get; set; } = true;
     /// <summary>Where the racing line comes from (setup panel, or -- --racing-line=optimised|reference|&lt;csv&gt;).</summary>
     public static RacingLineSource RacingLineSource { get; set; } = RacingLineSource.Optimised;
     /// <summary>Telemetry CSV with the best lap, for <see cref="RacingLineSource.RecordedLap"/>.</summary>
@@ -255,9 +257,10 @@ public partial class SimulationManager : Node
         Laps = new LapTimer(Track.Line);
         Laps.LapCompleted += lap =>
         {
-            Telemetry.AddEvent(FormattableString.Invariant($"lap:{lap.Lap}:{lap.Time:F3}:{(lap.Valid ? "valid" : "invalid")}"));
-            Notify(FormattableString.Invariant($"Lap {lap.Lap}: {FormatTime(lap.Time)}{(lap.Valid ? "" : " (invalid)")}"));
-            if (Leaderboard.Record(Track.TrackName, Vehicle.Parameters, lap.Time, lap.Valid) is { } podium)
+            // ":valid" kept in the event so telemetry CSVs stay readable by RecordedLapLine (every lap counts now).
+            Telemetry.AddEvent(FormattableString.Invariant($"lap:{lap.Lap}:{lap.Time:F3}:valid"));
+            Notify(FormattableString.Invariant($"Lap {lap.Lap}: {FormatTime(lap.Time)}"));
+            if (Leaderboard.Record(Track.TrackName, Vehicle.Parameters, lap.Time) is { } podium)
                 Notify(FormattableString.Invariant($"TOP 10 — P{podium.Rank} all time on {Track.TrackName}: {FormatTime(lap.Time)}"));
         };
 
@@ -306,7 +309,6 @@ public partial class SimulationManager : Node
             if (d.Outputs.TransmissionDamagedThisStep)
             {
                 Telemetry.AddEvent(FormattableString.Invariant($"transmission_damaged:v={d.State.V * 3.6:F1}kmh"));
-                Laps.InvalidateLap();
             }
             if (d.State.EngineBlown && !_blownLogged)
             {
@@ -472,7 +474,7 @@ public partial class SimulationManager : Node
 
     /// <summary>
     /// Recover to track: an explicit reset at rest on the centreline at the nearest arc length, heading along the
-    /// track. The lap in progress becomes invalid.
+    /// track. The lap in progress keeps running.
     /// </summary>
     public void RecoverToTrack()
     {
@@ -481,10 +483,9 @@ public partial class SimulationManager : Node
         var pose = Track.Line.Pose(pr.S);
         Vehicle.ResetVehicleAt(pose.X, pose.Y, pose.Psi, keepEngineDamage: true);
         Collisions.Reset();
-        Laps.InvalidateLap();
         _lastGear = 1;
         Telemetry.AddEvent(FormattableString.Invariant($"recover:s={pr.S:F1}"));
-        Notify("Recovered to track (lap invalid)");
+        Notify("Recovered to track");
         Camera?.Snap();
     }
 
@@ -641,7 +642,6 @@ public partial class SimulationManager : Node
 
     private void OnImpact(ImpactEvent e)
     {
-        // A crash does not invalidate the lap: a lap that reaches the line counts, whatever happened on the way.
         LastImpactSeverity = e.Severity;
         Telemetry.AddEvent(FormattableString.Invariant($"impact:{e.Severity:F2}"));
         var point = VehicleModelAdapter.ToGodotPosition(e.PointX, e.PointY, 0.5);

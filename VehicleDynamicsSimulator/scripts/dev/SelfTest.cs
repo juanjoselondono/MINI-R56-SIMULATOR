@@ -168,14 +168,13 @@ public partial class SelfTest : Node
         };
         AddChild(service);
         var mini = VehicleParameters.MiniCooperR56();
-        for (int i = 0; i < 12; i++) service.Record("Circuit", mini, 90 + i, valid: true);
-        bool invalidIgnored = service.Record("Circuit", mini, 50, valid: false) == null;
+        for (int i = 0; i < 12; i++) service.Record("Circuit", mini, 90 + i);
         var custom = mini.Clone();
         custom.Mass = 1000;
-        var podium = service.Record("Circuit", custom, 89.5, valid: true);
+        var podium = service.Record("Circuit", custom, 89.5);
         var reloaded = Leaderboard.Load(service.FilePath, out var err);
         var top = reloaded.Top("Circuit", VehicleProfiles.MiniR56);
-        Check("top 10 saved as JSON", err == null && invalidIgnored && top.Count == 10 && top[0].Time == 89.5 && top[0].CustomSetup
+        Check("top 10 saved as JSON", err == null && top.Count == 10 && top[0].Time == 89.5 && top[0].CustomSetup
             && top[^1].Time == 98 && podium?.Rank == 1 && reloaded.Top("Circuit", VehicleProfiles.F1).Count == 0,
             $"{top.Count} entries, best {F(top[0].Time)} s (custom setup {top[0].CustomSetup}), 10th {F(top[^1].Time)} s; {service.FilePath}");
 
@@ -219,8 +218,8 @@ public partial class SelfTest : Node
         bool lap = await Until(() => _sim.Laps.Laps.Count > 0, 300);
         var entry = _sim.Telemetry.Stop(V);
         var rec = lap ? _sim.Laps.Laps[0] : default;
-        Check("scripted lap counted", lap && rec.Valid && _sim.Collisions.ImpulseCount == impulses0,
-            lap ? $"lap {F(rec.Time, "0.00")} s, valid={rec.Valid}, impacts={_sim.Collisions.ImpulseCount - impulses0}" : "no lap within 300 s");
+        Check("scripted lap counted", lap && _sim.Collisions.ImpulseCount == impulses0,
+            lap ? $"lap {F(rec.Time, "0.00")} s, impacts={_sim.Collisions.ImpulseCount - impulses0}" : "no lap within 300 s");
         _referenceLap = lap ? rec.Time : double.NaN;
         Check("speedometer = physics state", Math.Abs(_sim.Telemetry.Latest.VKmh - D.State.V * 3.6) < 1e-9, $"{F(D.State.V * 3.6, "0.00")} km/h");
 
@@ -492,7 +491,7 @@ public partial class SelfTest : Node
         mesh.StartFinishEntered -= OnGate;
         var rec = lap ? _sim.Laps.Laps[0] : default;
         Check("scripted lap on the AC line", lap,
-            lap ? $"lap {F(rec.Time, "0.00")} s over {F(_sim.Track.Line.Length, "0")} m, valid={rec.Valid}, wall impacts={_sim.Collisions.ImpulseCount - imp0}" : "no lap within 400 s");
+            lap ? $"lap {F(rec.Time, "0.00")} s over {F(_sim.Track.Line.Length, "0")} m, wall impacts={_sim.Collisions.ImpulseCount - imp0}" : "no lap within 400 s");
         _referenceLap = lap ? rec.Time : double.NaN;
         Check("start/finish Area3D trigger", gateEvents >= 1 && entry != null && entry.Run.Samples.Any(r => r.Event?.Contains("sf_gate") == true),
             $"{gateEvents} gate event(s) logged with the lap timer's crossing");
@@ -649,8 +648,8 @@ public partial class SelfTest : Node
         var rec = lap ? _sim.Laps.Laps[0] : default;
         if (beyond.Count > 0)
             GD.Print("[selftest] beyond the AC limits (s bucket m: seconds): " + string.Join(", ", beyond.OrderByDescending(kv => kv.Value).Take(12).Select(kv => $"{kv.Key * 100}: {kv.Value:0.00}")));
-        Check("scripted lap on the AC line", lap && rec.Valid,
-            lap ? $"lap {SimulationManager.FormatTime(rec.Time)} over {F(line.Length, "0")} m, valid={rec.Valid}, wall impacts={_sim.Collisions.ImpulseCount - imp0} ({F((Time.GetTicksMsec() - wall0) / 1000.0, "0")} s wall time)"
+        Check("scripted lap on the AC line", lap,
+            lap ? $"lap {SimulationManager.FormatTime(rec.Time)} over {F(line.Length, "0")} m, wall impacts={_sim.Collisions.ImpulseCount - imp0} ({F((Time.GetTicksMsec() - wall0) / 1000.0, "0")} s wall time)"
                 : $"no lap within 1500 s; reached s={F(_sim.Laps.Projection.S, "0")} m");
         Check("mesh surfaces → μ (E2)", keys.Count >= 2 && gripMismatch < 1e-6,
             $"steps per surface: {string.Join(", ", keys.OrderByDescending(k => k.Value).Select(k => $"{k.Key} {k.Value}"))}; max |F_x,max − μ·factor·F_z| = {gripMismatch:E1} N");
@@ -690,17 +689,11 @@ public partial class SelfTest : Node
         V.AutoShift = true;
         V.Autopilot = vc => driver.Drive(vc.Dynamics.State, vc.Dynamics.Outputs, vc.Parameters);
         double maxDown = 0, maxFrontDrive = 0, vMax = 0;
-        string? firstInvalid = null;
         var prevAfter = V.AfterStep;
         V.AfterStep = (d, u) =>
         {
             prevAfter?.Invoke(d, u);
             maxDown = Math.Max(maxDown, d.Outputs.Downforce);
-            if (firstInvalid == null && !_sim.Laps.LapValid)
-            {
-                var (l, r) = _sim.Track.Line.Limits(_sim.Laps.Projection.S);
-                firstInvalid = FormattableString.Invariant($"lap invalid at s={_sim.Laps.Projection.S:0} lat={_sim.Laps.Projection.Lateral:0.00} (limits +{l:0.0}/-{r:0.0}) v={d.State.V * 3.6:0} km/h, line deviation {_sim.RacingLineTrack.Project(d.State.X, d.State.Y).Lateral:0.00} m, TC cut {d.Outputs.TractionControlCut:0.00}, brake {V.LastInputs.Brake:0.00}");
-            }
             vMax = Math.Max(vMax, d.State.V);
             if (d.Outputs.Branch == DriveBranch.Drive) maxFrontDrive = Math.Max(maxFrontDrive, Math.Abs(d.Outputs.FxFront));
         };
@@ -729,11 +722,10 @@ public partial class SelfTest : Node
         V.AutoShift = false;
         var rec = lap ? _sim.Laps.Laps[0] : default;
         int impacts = _sim.Collisions.ImpulseCount - imp0;
-        if (!lap || !rec.Valid || impacts > 0) foreach (var t in trace) GD.Print("[selftest] F1 trace " + t);
-        if (firstInvalid != null) GD.Print("[selftest] F1 " + firstInvalid);
+        if (!lap || impacts > 0) foreach (var t in trace) GD.Print("[selftest] F1 trace " + t);
         double w = p.Mass * p.G;
-        Check("F1 lap on its racing line (RWD, downforce)", lap && rec.Valid && impacts == 0 && (double.IsNaN(_miniCircuitLineLap) || rec.Time < _miniCircuitLineLap) && maxDown > 0.3 * w && maxFrontDrive == 0,
-            lap ? $"lap {F(rec.Time, "0.00")} s vs Mini {F(_miniCircuitLineLap, "0.00")} s, valid={rec.Valid}, impacts={impacts}; top {F(vMax * 3.6, "0")} km/h, peak downforce {F(maxDown, "0")} N ({F(maxDown / w, "0.00")} W); front drive force {F(maxFrontDrive)} N"
+        Check("F1 lap on its racing line (RWD, downforce)", lap && impacts == 0 && (double.IsNaN(_miniCircuitLineLap) || rec.Time < _miniCircuitLineLap) && maxDown > 0.3 * w && maxFrontDrive == 0,
+            lap ? $"lap {F(rec.Time, "0.00")} s vs Mini {F(_miniCircuitLineLap, "0.00")} s, impacts={impacts}; top {F(vMax * 3.6, "0")} km/h, peak downforce {F(maxDown, "0")} N ({F(maxDown / w, "0.00")} W); front drive force {F(maxFrontDrive)} N"
                 : "no lap within 300 s");
 
         // In-session swap behind the loading screen (threaded model load, racing line on a worker thread).
@@ -772,7 +764,6 @@ public partial class SelfTest : Node
         V.Autopilot = vc => driver.Drive(vc.Dynamics.State, vc.Dynamics.Outputs, vc.Parameters);
         int imp0 = _sim.Collisions.ImpulseCount;
         var where = new List<string>();
-        bool wasValid = true;
         void OnHit(ImpactEvent e) => where.Add(FormattableString.Invariant(
             $"impact s={_sim.Laps.Projection.S:0} lat={_sim.Laps.Projection.Lateral:0.0} line-dev={_sim.RacingLineTrack.Project(D.State.X, D.State.Y).Lateral:0.00} v={D.State.V * 3.6:0}"));
         _sim.Collisions.Impact += OnHit;
@@ -780,12 +771,6 @@ public partial class SelfTest : Node
         V.AfterStep = (d, u) =>
         {
             prevAfter?.Invoke(d, u);
-            if (wasValid && !_sim.Laps.LapValid)
-            {
-                var (l, r) = _sim.Track.Line.Limits(_sim.Laps.Projection.S);
-                where.Add(FormattableString.Invariant($"invalid at s={_sim.Laps.Projection.S:0} lat={_sim.Laps.Projection.Lateral:0.00} limits +{l:0.00}/-{r:0.00} line-dev={_sim.RacingLineTrack.Project(d.State.X, d.State.Y).Lateral:0.00}"));
-                wasValid = false;
-            }
         };
         bool lap = await Until(() => _sim.Laps.Laps.Count > 0, 400);
         V.AfterStep = prevAfter;
@@ -796,13 +781,35 @@ public partial class SelfTest : Node
         V.Autopilot = null;
         V.AutoShift = false;
         if (lap && _sim.Track.TrackName == "Circuit" && _sim.Vehicle.Parameters.Profile == VehicleProfiles.MiniR56) _miniCircuitLineLap = rec.Time;
-        Check("scripted lap on the racing line", lap && rec.Valid && impacts == 0 && rec.Time < _referenceLap,
-            lap ? $"{_sim.RacingLineInfo}: lap {F(rec.Time, "0.00")} s vs {F(_referenceLap, "0.00")} s on the reference line, valid={rec.Valid}, wall impacts={impacts}; reference-lap estimate {F(_sim.RacingLine.LapTime, "0.0")} s" : "no lap within 400 s");
+        Check("scripted lap on the racing line", lap && impacts == 0 && rec.Time < _referenceLap,
+            lap ? $"{_sim.RacingLineInfo}: lap {F(rec.Time, "0.00")} s vs {F(_referenceLap, "0.00")} s on the reference line, wall impacts={impacts}; reference-lap estimate {F(_sim.RacingLine.LapTime, "0.0")} s" : "no lap within 400 s");
         _sim.RestartSimulation();
     }
 
     private async Task UiAndComparison()
     {
+        // Minimap: F6 through the real input pipeline (Input.ParseInputEvent → _UnhandledInput) toggles it both ways.
+        if (GetTree().Root.FindChild("Minimap", true, false) is Minimap map)
+        {
+            async Task PressF6()
+            {
+                Input.ParseInputEvent(new InputEventKey { PhysicalKeycode = Key.F6, Keycode = Key.F6, Pressed = true });
+                await Frames(2);
+                Input.ParseInputEvent(new InputEventKey { PhysicalKeycode = Key.F6, Keycode = Key.F6, Pressed = false });
+                await Frames(2);
+            }
+            bool before = map.Visible;
+            await PressF6();
+            bool afterOne = map.Visible;
+            await PressF6();
+            bool afterTwo = map.Visible;
+            if (!map.Visible) map.Toggle();
+            await Frames(2);
+            Check("minimap (F6 toggle)", afterOne != before && afterTwo == before && map.PointCount > 100 && GameSession.MinimapVisible,
+                $"visible {before} → {afterOne} → {afterTwo}; outline {map.PointCount} points of {_sim.Track.TrackName}");
+        }
+        else Check("minimap (F6 toggle)", false, "Minimap node not found");
+
         var ui = GetTree().Root.FindChild("UI", true, false) as UiRoot;
         ui?.ShowPanels(true, true, true);
         await Frames(10);

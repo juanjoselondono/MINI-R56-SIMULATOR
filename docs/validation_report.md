@@ -854,3 +854,10 @@ per excursion: one continuous stay beyond the limits longer than 1 s invalidates
 **Converter.** Monaco re-converted with the generalised `kn5_convert.py`: GLB, physics OBJ, racing line, grid and gates
 byte-identical; the JSON only gains the surface class. Three Nürburgring textures with block-compressed sizes that are
 not multiples of 4 (2127 × 591, 139 × 128, 128 × 2045) failed in Godot and are now re-encoded as PNG.
+
+## 23. Laps always count, minimap (2026-10-23)
+
+Unit tests `VehicleDynamics.Tests` **154/154**, `GameLogic.Tests` **15/15** (`EveryCompletedLapCounts_EvenFarOffTheTrack`:
+a lap with 300 m far outside the limits is recorded with its full time and is the best lap); self-test **63/63** (new:
+F6 through `Input.ParseInputEvent` toggles the minimap off and on, 520-point outline of the Circuit). Lap times of all
+scripted laps unchanged (Oval 60.20 s, Circuit 111.61 s, Monaco 190.19 s, Nürburgring 16:44.692).

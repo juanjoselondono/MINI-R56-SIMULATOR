@@ -5,7 +5,7 @@ using Simulator.Vehicle;
 
 namespace Simulator.UI;
 
-/// <summary>Hosts the HUD, the panels and the podium banner; toggles the panels with Tab / F2 / F3 / F4 / F1.</summary>
+/// <summary>Hosts the HUD, the minimap (F6, its own input handler), the panels and the podium banner; toggles the panels with Tab / F2 / F3 / F4 / F1.</summary>
 public partial class UiRoot : CanvasLayer
 {
     [Export] public NodePath SimulationPath { get; set; } = new("../SimulationManager");
@@ -24,6 +24,11 @@ public partial class UiRoot : CanvasLayer
         var hud = new RaceHud();
         AddChild(hud);
         hud.Init(_sim);
+
+        var minimap = new Minimap { Name = "Minimap" };
+        AddChild(minimap);
+        minimap.Init(_sim);
+        minimap.Position = new Vector2(12, 12);
 
         _setup = new VehicleSetupPanel();
         AddChild(_setup);
@@ -92,14 +97,15 @@ public partial class UiRoot : CanvasLayer
             "E / RB, Q / LB      shift up / down (manual)",
             "T                   toggle auto-shift (model.m gear rule)",
             "R / Back (Select)   restart: grid, at rest, laps cleared, damage repaired",
-            "Backspace / B       recover to track centreline (lap invalid)",
+            "Backspace / B       recover to track centreline",
             "P / Start           pause / resume the simulation clock",
             "C / Y               camera: chase / bonnet / cockpit",
             "H                   headlights",
             "L / A               racing line (green accelerate, yellow coast, red brake)",
             "X / X               reverse on/off (≤ 10 km/h; faster destroys the transmission)",
             "F5                  start / stop telemetry recording",
-            "F6                  graphics preset: Ultra (native + TAA) / High (FSR 2.2 Quality) / Performance",
+            "F6                  minimap on/off",
+            "F7                  graphics preset: Ultra (native + TAA) / High (FSR 2.2 Quality) / Performance",
             "Tab                 vehicle setup panel",
             "F2                  telemetry dashboard",
             "F3                  run comparison",

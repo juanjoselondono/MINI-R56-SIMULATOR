@@ -114,20 +114,24 @@ oversteer. The readout above the list shows the resulting balance.
 | E / Q | RB / LB | shift up / down (manual) |
 | T | – | toggle auto-shift (model.m gear rule: lowest gear whose 6500-rpm speed ≥ V) |
 | R | Back (Select) | restart: grid, at rest, laps cleared, engine and transmission repaired |
-| Backspace | B | recover to the nearest centreline point at rest. The lap becomes invalid and engine or transmission damage is kept. |
+| Backspace | B | recover to the nearest centreline point at rest. The lap keeps running; engine or transmission damage is kept. |
 | X | X | reverse on/off (Getrag G255 / GS6-55BG reverse, 3.143). It engages up to 10 km/h against the direction of travel; above that the transmission is destroyed (no torque, "Transmission Damaged! Press R to restart"). R / Back (Select) restarts and repairs. Needs the dynamic lateral model (default). |
 | P | Start | pause / resume the simulation clock (shift presses while paused are ignored) |
 | C | Y | cycle camera: chase → bonnet → cockpit (driver's eye, through the glass) |
 | H | – | headlights |
 | L | A, D-pad up | racing line on/off: green = accelerate, yellow = coast/transition, red = heavy braking (reference lap for the current setup). The source is chosen in the setup panel (Tab): optimised minimum-curvature line (default), the track's reference line, or the best lap of a telemetry CSV. |
 | F5 | – | start / stop telemetry recording (the pad's X is now reverse) |
-| F6 | – | graphics preset: High (FSR 2.2 Quality, default, sharpest) → Performance (FSR 2.2 Balanced) → Ultra (native + TAA, with motion blur) |
+| F6 | – | minimap on/off (top left: track outline, start/finish bar, car); remembered across restarts and tracks |
+| F7 | – | graphics preset: High (FSR 2.2 Quality, default, sharpest) → Performance (FSR 2.2 Balanced) → Ultra (native + TAA, with motion blur) |
 | Tab | – | vehicle setup panel |
 | F2 | – | telemetry dashboard |
 | F3 | – | run comparison |
 | F4 | – | best laps: the all-time top 10 of this track and car, with podium photos |
 | F1 | – | controls help |
 | Esc | – | back to the main menu (unexported recordings of the session are discarded) |
+
+**Lap times.** Every lap that crosses the line after passing the two checkpoints (1/3 and 2/3 of the lap, in order) is
+recorded: there are no track-limit, collision, recovery or damage penalties.
 
 While a text or number field has focus, driving keys and shortcuts are ignored. Press Enter to leave the field.
 
@@ -167,7 +171,7 @@ While a text or number field has focus, driving keys and shortcuts are ignored. 
     control for the F1, springs for the Mini.
   - Reset Parameters followed by Apply returns the car to its factory defaults.
   - Configurations saved before this version are moved automatically into the folder of the car they belong to.
-- **Best laps (F4).** For each track and car, the 10 fastest valid laps of all time, each with its podium photo, date,
+- **Best laps (F4).** For each track and car, the 10 fastest laps of all time, each with its podium photo, date,
   and a "custom setup" tag when the parameters differed from the car's defaults. With **Podium photo** checked (the
   default), a lap that makes the top 10 shows a banner with a live, mirrored webcam preview and a 3-second countdown,
   then takes the photo. The camera is only open during the countdown, and photos stay on this computer. Uncheck the

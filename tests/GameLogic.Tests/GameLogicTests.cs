@@ -154,19 +154,19 @@ public class LapTimerTests
             st.Time = s / 20;
             lt.AfterStep(st, dt);
         }
-        return Assert.Single(lt.Laps);
+        var rec = Assert.Single(lt.Laps);
+        Assert.Equal(rec.Time, lt.BestLapTime);
+        return rec;
     }
 
     [Fact]
-    public void OffTrack_InvalidatesOnlyAOneSecondExcursion_NotBriefOnesAddingUp()
+    public void EveryCompletedLapCounts_EvenFarOffTheTrack()
     {
         var t = TrackLibrary.Oval();
-        double wide = t.Limits(0).Left + 3;
-        // Three 0.6 s excursions (12 m at 20 m/s): 1.8 s in total, none longer than 1 s → valid.
-        bool Brief(double s) => s is > 300 and < 312 or > 600 and < 612 or > 900 and < 912;
-        Assert.True(DriveLap(t, s => Brief(s) ? wide : 0).Valid);
-        // One 1.5 s excursion (30 m) → cutting → invalid.
-        Assert.False(DriveLap(t, s => s is > 500 and < 530 ? wide : 0).Valid);
+        double wide = t.Limits(0).Left + 20;
+        // 300 m (15 s) far beyond the track limits: the lap is still recorded, with its full time, and is the best lap.
+        var rec = DriveLap(t, s => s is > 500 and < 800 ? wide : 0);
+        Assert.Equal(t.Length / 20, rec.Time, 1);
     }
 
     [Fact]
@@ -277,9 +277,8 @@ public class CollisionAndDrivingTests
             lt.AfterStep(dyn.State, p.Dt);
             maxLat = Math.Max(maxLat, Math.Abs(lt.Projection.Lateral));
         }
-        _out.WriteLine($"{name}: lap {(lt.Laps.Count > 0 ? lt.Laps[0].Time : double.NaN):F2} s, valid {lt.Laps.FirstOrDefault().Valid}, max |lateral| {maxLat:F2} m, impacts {impacts}");
+        _out.WriteLine($"{name}: lap {(lt.Laps.Count > 0 ? lt.Laps[0].Time : double.NaN):F2} s, max |lateral| {maxLat:F2} m, impacts {impacts}");
         Assert.Single(lt.Laps);
-        Assert.True(lt.Laps[0].Valid);
         Assert.Equal(0, impacts);
         Assert.True(maxLat < t.Section.RoadHalfWidth);
     }

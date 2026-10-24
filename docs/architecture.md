@@ -127,7 +127,7 @@ So what you see is what you hit.
 | Response (E3, E1 model) | First step of a contact: `CollisionResponse.Resolve` (restitution e, tangential loss k_t, yaw kick ≤ maxYawKick). While latched: `SustainedContact.Resolve`. Both applied via `ApplyCollision`. | One impulse per contact (`ContactLatch`); a new impulse only after separation. Speed can never increase. |
 | Effects | `SimulationManager.OnImpact` → sparks, camera shake, `EngineSynth.TriggerImpact`, telemetry event `impact:<severity>` (the lap stays valid) | Cosmetic only. |
 | Godot collision shapes | `StaticBody3D` with the barrier faces (layer 2) | Used only by the chase camera's ray query, which keeps the camera in front of walls. |
-| Recovery | `RecoverToTrack`: explicit reset at rest on the nearest centreline point, engine damage kept, lap invalid | The model has no reverse gear, so a head-on stop needs this. |
+| Recovery | `RecoverToTrack`: explicit reset at rest on the nearest centreline point, engine damage kept, the lap keeps running | The model has no reverse gear, so a head-on stop needs this. |
 
 ### 4.1 Converted mesh tracks (Monaco, Nürburgring)
 
@@ -208,12 +208,21 @@ triangles on Monaco.
 | Game | `SimulationManager.Setups` (migrates on first use), `SetupFor(profile)` (saved setup in play, defaults in test runs), `SaveCurrentSetup()` (called by Apply Setup). Main menu: current setup / factory defaults / the car's named setups (`GameSession.ConfigPath`, `FactoryDefaults`). |
 | Rows | `ParameterCatalog.Build` filters by `ParamEntry.Profiles` (vehicle_model §29). |
 
+### 4.5b Minimap (HUD)
+
+`UI/Minimap` (`scripts/ui/Minimap.cs`), top left, 240 px. Drawn in 2D from the track's reference line (`ITrackLine`,
+model frame, north = +Y model = −Z Godot up), sampled once per track (~5 m, 200–2000 points) and scaled to fit; each
+frame only the car triangle (physical X, Y, ψ) is redrawn. An orthographic `Camera3D` in a `SubViewport` was rejected:
+it renders the whole scene a second time every frame (7.9 M triangles at the Nürburgring), and a 25 km track seen from
+above is a hairline under trees and roofs. Toggle: `_UnhandledInput` on the `toggle_minimap` action (F6, in the Input
+Map so it can be remapped); state in `GameSession.MinimapVisible`.
+
 ### 4.6 Best laps and podium photos
 
 | Piece | Implementation |
 |---|---|
 | Board | `Leaderboard` (Godot-free, `GameLogic.Tests`): top 10 per track + vehicle, ties keep the earlier lap, atomic JSON save (`user://leaderboard.json`), a corrupt file is renamed `*.corrupt-<time>` and a new board started |
-| Service | `LeaderboardService` (child of SimulationManager): `Record` from `LapTimer.LapCompleted` (valid laps only; flags laps driven with a modified setup), deletes the photos of laps pushed off the board, exposes `Current` (the podium moment) for the UI. Disabled in command-line test runs. |
+| Service | `LeaderboardService` (child of SimulationManager): `Record` from `LapTimer.LapCompleted` (every lap; flags laps driven with a modified setup), deletes the photos of laps pushed off the board, exposes `Current` (the podium moment) for the UI. Disabled in command-line test runs. |
 | Webcam | `WebcamCapture`: `CameraServer.MonitoringFeeds` lists the cameras (no streaming); for a photo the first (front) feed is opened at ≤ 1280 px, shown through a `CameraTexture` (RGBA), and after a 3-s countdown the first non-black frame is read back with `GetImage()`, scaled to ≤ 720 px high and saved to `user://leaderboard_photos/<entry id>.png`; then the feed is closed. `VideoStreamPlayer` is not used: it plays files and streams, not cameras. Needs a real renderer (no image in `--headless`). One capture at a time: a newer top lap takes over. |
 | Privacy | The camera is open only during the countdown; photos stay local; the "Podium photo" setting (Best Laps panel, `user://settings.cfg`) turns the camera off. |
 | UI | `PodiumOverlay` (top centre: rank, time, mirrored live preview with the countdown, then the photo for 6 s); `LeaderboardPanel` (F4: P1–P10 with photo thumbnails, date, "custom setup" tag, the photo setting). Textures are released in `_ExitTree` on the main thread (GC finalizers at exit would free GPU resources from the wrong thread). |
@@ -264,7 +273,7 @@ through an `AudioStreamGenerator`.
 | Texture filtering | `project.godot` + per viewport (`GraphicsSettings`) | 16× anisotropic filtering, texture mip bias −0.5 (all presets); track and car materials use linear-mipmap-anisotropic filtering. AC DDS textures are BC1/BC3 with full mip chains and are loaded as is (no import step); the 15 re-encoded PNGs import as VRAM uncompressed with mipmaps. |
 | Mesh LOD / visibility | `GraphicsSettings`, `MeshTrack.KeepFoliageDetail`, converter + post-import | LOD threshold 0.25 / 0.5 / 1.0 px (Ultra / High / Performance; project default 0.5). Alpha-tested meshes (tree cards, fences) LOD bias 8. Minor objects (< 4 m) are merged in 50 m cells with a visibility end of 250 × radius (400–1200 m) and a 15 % dithered fade. Camera far 4000 m. |
 
-F6 cycles the presets; `-- --gfx=ultra|high|performance` picks one at start. The default is **High (FSR 2.2 Quality)**,
+F7 cycles the presets; `-- --gfx=ultra|high|performance` picks one at start. The default is **High (FSR 2.2 Quality)**,
 which is the sharpest and fastest preset (validation_report §18); Ultra is the native + TAA preset with motion blur.
 
 ## 7. Threading and performance

@@ -5,28 +5,24 @@ using VehicleDynamics.Core.Track;
 
 namespace Simulator.Race;
 
-public readonly record struct LapRecord(int Lap, double Time, bool Valid);
+public readonly record struct LapRecord(int Lap, double Time);
 
 /// <summary>
 /// Lap timing from the track arc length of the physical state, updated once per physics step.
 /// Standing start: lap 1 starts when the car first moves within 50 m of the line. After that a lap counts only when
 /// the start line (s = 0) is crossed forwards after passing checkpoints at 1/3 and 2/3 of the lap in order, so cutting
 /// back across the line or driving the wrong way never completes a lap. The crossing time is interpolated linearly
-/// between the two steps around the line. A lap is invalid when the car centre stays more than
-/// <see cref="OffTrackAllowance"/> s in one go beyond the road + curb (cutting; brief excursions at apexes do not add
-/// up, so the rule does not depend on the lap length), after a recovery to the centreline or when the
-/// transmission is destroyed. Barrier impacts do not invalidate it.
+/// between the two steps around the line. Every completed lap counts: there are no track-limit, collision or
+/// recovery penalties (only the ordered checkpoints, which a lap needs to be a lap at all).
 /// </summary>
 public sealed class LapTimer
 {
     public ITrackLine Track { get; }
-    public double OffTrackAllowance { get; set; } = 1.0;
 
     /// <summary>Current lap number; 0 until the first forward crossing of the line.</summary>
     public int Lap { get; private set; }
     public double LapStartTime { get; private set; }
     public double CurrentLapTime { get; private set; }
-    public bool LapValid { get; private set; } = true;
     public double? LastLapTime { get; private set; }
     public double? BestLapTime { get; private set; }
     public List<LapRecord> Laps { get; } = new();
@@ -37,18 +33,15 @@ public sealed class LapTimer
     private double _prevS = double.NaN;
     private double _prevT;
     private int _checkpoint;   // 0 none, 1 passed L/3, 2 passed 2L/3
-    private double _offTrack;
 
     public LapTimer(ITrackLine track) => Track = track;
 
     public void Reset()
     {
-        Lap = 0; LapStartTime = 0; CurrentLapTime = 0; LapValid = true;
+        Lap = 0; LapStartTime = 0; CurrentLapTime = 0;
         LastLapTime = null; BestLapTime = null; Laps.Clear();
-        _prevS = double.NaN; _checkpoint = 0; _offTrack = 0;
+        _prevS = double.NaN; _checkpoint = 0;
     }
-
-    public void InvalidateLap() => LapValid = false;
 
     public void AfterStep(in VehicleState s, double dt)
     {
@@ -57,9 +50,6 @@ public sealed class LapTimer
         double L = Track.Length;
         double sNow = p.S;
 
-        var (left, right) = Track.Limits(p.S);
-        _offTrack = p.Lateral > left || p.Lateral < -right ? _offTrack + dt : 0;
-        if (_offTrack > OffTrackAllowance) LapValid = false;
 
         if (Lap == 0 && s.V > 0.05 && (sNow < 50 || sNow > L - 50))
         {
@@ -79,10 +69,10 @@ public sealed class LapTimer
                 double tCross = _prevT + frac * (s.Time - _prevT);
                 if (_checkpoint == 2)
                 {
-                    var rec = new LapRecord(Lap, tCross - LapStartTime, LapValid);
+                    var rec = new LapRecord(Lap, tCross - LapStartTime);
                     Laps.Add(rec);
                     LastLapTime = rec.Time;
-                    if (rec.Valid && (BestLapTime is null || rec.Time < BestLapTime)) BestLapTime = rec.Time;
+                    if (BestLapTime is null || rec.Time < BestLapTime) BestLapTime = rec.Time;
                     LapCompleted?.Invoke(rec);
                     StartLap(tCross);
                 }
@@ -97,9 +87,7 @@ public sealed class LapTimer
     {
         Lap++;
         LapStartTime = t;
-        LapValid = true;
         _checkpoint = 0;
-        _offTrack = 0;
     }
 
     private static bool Crossed(double a, double b, double mark) => a < mark && b >= mark && b - a < 50;

@@ -23,7 +23,7 @@ public sealed record LeaderboardEntry
 
 /// <summary>
 /// All-time best laps, persisted as one JSON file. Laps are ranked per track and vehicle (a Mini lap and an F1 lap are
-/// different competitions); each board keeps its <see cref="Size"/> fastest valid laps. Godot-independent so it can be
+/// different competitions); each board keeps its <see cref="Size"/> fastest laps. Godot-independent so it can be
 /// unit-tested; the game wraps it in LeaderboardService (photos, UI).
 /// </summary>
 public sealed class Leaderboard
@@ -57,7 +57,7 @@ public sealed class Leaderboard
     }
 
     /// <summary>
-    /// Adds a valid lap if it makes the board. Returns the new entry and its rank, and the entries it pushed off the
+    /// Adds a lap if it makes the board. Returns the new entry and its rank, and the entries it pushed off the
     /// board (their photos can be deleted); null when the lap is not a top time.
     /// </summary>
     public (LeaderboardEntry Entry, int Rank, IReadOnlyList<LeaderboardEntry> Dropped)? Submit(string track, string vehicle, double time, DateTime date,

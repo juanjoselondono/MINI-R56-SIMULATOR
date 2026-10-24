@@ -17,7 +17,7 @@ public enum GraphicsPreset { Ultra, High, Performance }
 /// All presets: 16× anisotropic filtering, −0.5 texture mip bias; mesh LOD threshold 0.25 / 0.5 / 1.0 px.
 /// Default: High (FSR 2.2 Quality), the sharpest and fastest preset (about 2× the road detail of native + TAA, 7.8 ms GPU
 /// on Monaco; docs/validation_report.md §18). Motion blur only on Ultra (see <see cref="MotionBlurSupported"/>).
-/// F6 cycles presets, `-- --gfx=ultra|high|performance` picks one at start.
+/// F7 cycles presets, `-- --gfx=ultra|high|performance` picks one at start.
 /// </summary>
 public static class GraphicsSettings
 {

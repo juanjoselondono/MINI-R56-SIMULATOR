@@ -71,8 +71,8 @@ public partial class RaceHud : Control
         DrawRect(lp, new Color(0, 0, 0, 0.55f));
         var laps = _sim.Laps;
         DrawString(font, lp.Position + new Vector2(14, 26), $"{_sim.Track.TrackName.ToUpperInvariant()}   LAP {Math.Max(laps.Lap, 0)}", HorizontalAlignment.Left, -1, 16, UiTheme.Accent);
-        DrawString(font, lp.Position + new Vector2(14, 56), "Current  " + SimulationManager.FormatTime(laps.Lap > 0 ? laps.CurrentLapTime : null) + (laps.LapValid ? "" : "  INVALID"),
-            HorizontalAlignment.Left, -1, 17, laps.LapValid ? UiTheme.Text : UiTheme.Bad);
+        DrawString(font, lp.Position + new Vector2(14, 56), "Current  " + SimulationManager.FormatTime(laps.Lap > 0 ? laps.CurrentLapTime : null),
+            HorizontalAlignment.Left, -1, 17, UiTheme.Text);
         DrawString(font, lp.Position + new Vector2(14, 84), "Last     " + SimulationManager.FormatTime(laps.LastLapTime), HorizontalAlignment.Left, -1, 15, UiTheme.Muted);
         DrawString(font, lp.Position + new Vector2(14, 110), "Best     " + SimulationManager.FormatTime(laps.BestLapTime), HorizontalAlignment.Left, -1, 15, UiTheme.Good);
 
@@ -122,6 +122,6 @@ public partial class RaceHud : Control
             DrawRect(m, new Color(0, 0, 0, 0.65f));
             DrawString(font, m.Position + new Vector2(15, 23), _sim.LastMessage, HorizontalAlignment.Left, -1, 16, UiTheme.Text);
         }
-        DrawString(font, new Vector2(18, vp.Y - 16), "F1 help · Tab setup · F2 telemetry · F3 compare · F4 best laps · F5 record · Esc menu", HorizontalAlignment.Left, -1, 13, new Color(1, 1, 1, 0.6f));
+        DrawString(font, new Vector2(18, vp.Y - 16), "F1 help · Tab setup · F2 telemetry · F3 compare · F4 best laps · F5 record · F6 map · Esc menu", HorizontalAlignment.Left, -1, 13, new Color(1, 1, 1, 0.6f));
     }
 }
