@@ -385,6 +385,86 @@ public partial class SelfTest : Node
         Check("X above 10 km/h damages transmission", damaged && torque == 0 && ftr == 0 && v2 < v1 && !D.State.TransmissionDamaged && D.State.V == 0,
             $"X at {F(vAt, "0.0")} km/h → damaged={damaged}, engine torque {F(torque)} N·m, F_tractive {F(ftr)} N, full throttle {F(v1 * 3.6, "0.0")} → {F(v2 * 3.6, "0.0")} km/h; Back → repaired, at rest");
         V.Autopilot = null;
+        await WheelChecks();
+    }
+
+    /// <summary>
+    /// SideWinder wheel through InputManager.gd with a stand-in device id: raw events as an unmapped device produces them,
+    /// next to the pad. The pedal ranges are the hardware variants the calibration has to cover.
+    /// </summary>
+    private async Task WheelChecks()
+    {
+        const int wheel = 7, pad = 0;
+        var im = GetNode("/root/InputManager");
+        var savedConfig = im.Get("wheel_config");
+        void WheelAxis(int axis, float v) => Input.ParseInputEvent(new InputEventJoypadMotion { Device = wheel, Axis = (JoyAxis)axis, AxisValue = v });
+        void WheelButton(int b, bool down) => Input.ParseInputEvent(new InputEventJoypadButton { Device = wheel, ButtonIndex = (JoyButton)b, Pressed = down });
+        void PadAxis(JoyAxis a, float v) => Input.ParseInputEvent(new InputEventJoypadMotion { Device = pad, Axis = a, AxisValue = v });
+        Godot.Collections.Dictionary Pedal(int axis, float released, float pressed) => new()
+            { ["axis"] = axis, ["raw_released"] = released, ["raw_pressed"] = pressed, ["deadzone"] = 0f, ["saturation"] = 1f, ["gamma"] = 1f };
+        void Configure(Godot.Collections.Dictionary throttle, Godot.Collections.Dictionary brake) => im.Set("wheel_config", new Godot.Collections.Dictionary
+        {
+            ["steering"] = new Godot.Collections.Dictionary { ["axis"] = 0, ["raw_left"] = -1f, ["raw_center"] = 0f, ["raw_right"] = 1f, ["deadzone"] = 0f },
+            ["throttle"] = throttle,
+            ["brake"] = brake,
+            ["buttons"] = new Godot.Collections.Dictionary { [5] = InputSetup.ShiftUp },
+        });
+
+        _sim.RestartSimulation();
+        V.AutoShift = false;
+        Configure(Pedal(1, -1, 1), Pedal(2, 1, -1));
+        im.Call("force_devices", wheel, pad);
+        await Frames(2);
+        Check("wheel pedal silent before its first event", V.LastInputs.Throttle == 0 && V.LastInputs.Brake == 0,
+            $"no events yet → throttle {F(V.LastInputs.Throttle)}, brake {F(V.LastInputs.Brake)}");
+
+        WheelAxis(1, -1f);
+        WheelAxis(2, 1f);
+        await Frames(2);
+        bool restZero = V.LastInputs.Throttle == 0 && V.LastInputs.Brake == 0;
+        WheelAxis(1, 0.5f);
+        WheelAxis(0, 0.5f);
+        await Frames(2);
+        double thr = V.LastInputs.Throttle, steerRight = V.LastInputs.SteerAngle;
+        WheelAxis(1, -1f);
+        WheelAxis(0, 0f);
+        WheelAxis(2, 0f);
+        await Frames(2);
+        Check("wheel pedals and steering normalised", restZero && Math.Abs(thr - 0.75) < 1e-6 && steerRight < 0 && Math.Abs(V.LastInputs.Brake - 0.5) < 1e-6,
+            $"−1..1 pedal at 0.5 → throttle {F(thr, "0.000")}; inverted pedal at 0 → brake {F(V.LastInputs.Brake, "0.000")}; wheel right → δ {F(steerRight, "0.0000")} rad");
+        WheelAxis(2, 1f);
+
+        Configure(Pedal(3, 0, -1), Pedal(3, 0, 1));
+        WheelAxis(3, -0.4f);
+        await Frames(2);
+        double combinedThrottle = V.LastInputs.Throttle, combinedBrake = V.LastInputs.Brake;
+        WheelAxis(3, 0.6f);
+        await Frames(2);
+        Check("wheel pedals sharing one axis", Math.Abs(combinedThrottle - 0.4) < 1e-6 && combinedBrake == 0 && V.LastInputs.Throttle == 0 && Math.Abs(V.LastInputs.Brake - 0.6) < 1e-6,
+            $"axis −0.4 → throttle {F(combinedThrottle, "0.000")}, brake {F(combinedBrake)}; axis +0.6 → throttle {F(V.LastInputs.Throttle)}, brake {F(V.LastInputs.Brake, "0.000")}");
+        WheelAxis(3, 0f);
+
+        // Standard-layout ids on the wheel must not reach the Input Map; only its configured button does.
+        WheelButton((int)JoyButton.Back, true);
+        WheelAxis((int)JoyAxis.TriggerRight, 1f);
+        await Frames(2);
+        bool aliased = Input.IsActionPressed(InputSetup.ResetVehicle) || Input.GetActionStrength(InputSetup.Throttle) > 0;
+        WheelButton((int)JoyButton.Back, false);
+        WheelAxis((int)JoyAxis.TriggerRight, 0f);
+        int g0 = D.State.Gear;
+        WheelButton(5, true); await Frames(2); WheelButton(5, false); await Frames(1);
+        int gUp = D.State.Gear;
+        PadAxis(JoyAxis.TriggerRight, 1f);
+        await Frames(2);
+        double padThrottle = V.LastInputs.Throttle;
+        PadAxis(JoyAxis.TriggerRight, 0f);
+        await Frames(1);
+        Check("wheel raw ids isolated from Input Map, pad still live", !aliased && gUp == g0 + 1 && padThrottle == 1,
+            $"wheel Back/RT ids aliased={aliased}; wheel button 5: gear {g0} → {gUp}; pad RT → throttle {F(padThrottle)}");
+
+        im.Set("wheel_config", savedConfig);
+        im.Call("force_devices", -1, -1);
+        await Frames(1);
     }
 
     /// <summary>E5 physical launch clutch from rest at full throttle (driver inputs, auto-shift).</summary>

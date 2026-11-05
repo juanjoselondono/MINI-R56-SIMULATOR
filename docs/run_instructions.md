@@ -147,6 +147,34 @@ While a text or number field has focus, driving keys and shortcuts are ignored. 
   To regenerate the defaults:
   `$GODOT --headless --path VehicleDynamicsSimulator --script res://tools/write_input_map.gd`.
 
+### Racing wheel (Microsoft SideWinder Precision Racing Wheel USB v1.0)
+
+The wheel (USB `045e:001a`) has no SDL mapping, so `scripts/vehicle/InputManager.gd` (autoload) reads its raw events. It
+runs together with the F710: the pedals take the larger of the two devices, steering the larger magnitude.
+
+Steering is on axis 0 (centre +0.088), the throttle on axis 1 and the brake on axis 2 (released +1, pressed -1).
+
+| Wheel button | Action |
+|---|---|
+| 7 | shift up |
+| 6 | shift down |
+| 5 | restart (same as R / Back) |
+| 2 | reverse on/off |
+| 0 | cycle camera |
+
+To change this, edit `wheel_config` at the top of `InputManager.gd`. To see the raw IDs and ranges, run
+`$GODOT --path . -- --joy-probe` from `VehicleDynamicsSimulator/` and move one control at a time. To check that Linux sees
+the wheel: `lsusb | grep 045e:001a`.
+
+While the wheel is connected, the Input Map's joypad bindings listen only to the pad, because the wheel's raw IDs would
+otherwise trigger them (raw button 4 = Back = restart). Do not bind the wheel's axes in the Input Map: an action only
+reads the positive half of an axis, and device IDs change between connections.
+
+If the wheel is not detected automatically, call `force_devices(wheel_id, pad_id)`. If `/dev/input/event*` is not readable
+for the wheel, add `/etc/udev/rules.d/71-sidewinder-wheel.rules` containing
+`SUBSYSTEM=="input", ATTRS{idVendor}=="045e", ATTRS{idProduct}=="001a", ENV{ID_INPUT_JOYSTICK}="1", TAG+="uaccess"`,
+then run `sudo udevadm control --reload && sudo udevadm trigger` and reconnect the wheel.
+
 ### Panels
 
 - **Vehicle setup (Tab).** Every exposed parameter has a slider, a number field, its unit, range, default, a reset
@@ -202,7 +230,7 @@ failure) are in the `event` column.
 These go after `--`. They skip the main menu.
 
 ```bash
-# In-game self-test on all tracks and both cars (62 checks with Monaco and the Nürburgring converted), deterministic;
+# In-game self-test on all tracks and both cars (71 checks with Monaco and the Nürburgring converted), deterministic;
 # exit code 0 = all pass.
 # Test modes use the profile defaults (not your saved setups) and never write your best laps.
 $GODOT --headless --fixed-fps 60 --path . -- --selftest

@@ -80,6 +80,8 @@ public partial class VehicleController : Node3D
         set { _recorder = value; if (Loop != null) Loop.Recorder = value; }
     }
 
+    /// <summary>The InputManager autoload (InputManager.gd): merged F710 and SideWinder wheel levels.</summary>
+    private Node? _analogInput;
     private int _requestedShift;
     private double _wheelTravel;
     private (double Throttle, double Brake, double Steer) _rawTargets;
@@ -109,6 +111,8 @@ public partial class VehicleController : Node3D
     public override void _Ready()
     {
         InputSetup.EnsureActions();
+        _analogInput = GetNodeOrNull("/root/InputManager");
+        _analogInput?.Set("pad_stick_exponent", StickSteerExponent);
         if (!_spawnSet) _spawn = VehicleModelAdapter.FromGodotTransform(GlobalTransform);
         _visuals = GetNodeOrNull<VehicleVisuals>("Visuals");
         if (_visuals != null) _visuals.WheelRadius = Parameters.WheelRadius;
@@ -238,6 +242,8 @@ public partial class VehicleController : Node3D
     /// <summary>The device of the most recent driving input decides between analog (gamepad) and ramped (keyboard) inputs.</summary>
     public override void _Input(InputEvent e)
     {
+        // Raw wheel events say nothing about use: a pedal at rest reports -1. See wheel_engaged in _Process.
+        if (e is InputEventJoypadMotion or InputEventJoypadButton && _analogInput != null && e.Device == _analogInput.Get("wheel_device").AsInt32()) return;
         if (e is InputEventJoypadMotion m && Math.Abs(m.AxisValue) > 0.2f) UsingGamepad = true;
         else if (e is InputEventJoypadButton { Pressed: true }) UsingGamepad = true;
         else if (e is InputEventKey { Pressed: true }) UsingGamepad = false;
@@ -264,6 +270,14 @@ public partial class VehicleController : Node3D
             brake = Input.GetActionStrength(InputSetup.Brake);
             steer = Input.GetActionStrength(InputSetup.SteerLeft) - Input.GetActionStrength(InputSetup.SteerRight);
             if (UsingGamepad) steer = Math.Sign(steer) * Math.Pow(Math.Abs(steer), StickSteerExponent);
+            if (_analogInput != null)
+            {
+                throttle = Math.Max(throttle, _analogInput.Get("throttle").AsDouble());
+                brake = Math.Max(brake, _analogInput.Get("brake").AsDouble());
+                double analogSteer = _analogInput.Get("steering").AsDouble();
+                if (Math.Abs(analogSteer) > Math.Abs(steer)) steer = analogSteer;
+                if (_analogInput.Get("wheel_engaged").AsBool()) UsingGamepad = true;
+            }
         }
 
         // Raw targets are sampled once per frame; ramping and the steering assist run per physics step

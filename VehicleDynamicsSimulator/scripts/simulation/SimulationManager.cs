@@ -609,6 +609,11 @@ public partial class SimulationManager : Node
         int id = (int)device;
         if (!connected) { Notify($"Gamepad {id} disconnected"); return; }
         string name = Input.GetJoyName(id);
+        if (GetNodeOrNull("/root/InputManager")?.Get("wheel_device").AsInt32() == id)
+        {
+            Notify($"Racing wheel connected: {name}");
+            return;
+        }
         Notify(Input.IsJoyKnown(id)
             ? $"Gamepad connected: {name} (RT throttle, LT brake, left stick steer, RB/LB shift)"
             : $"Gamepad '{name}' has no standard mapping: set the F710 switch to X (XInput)");
